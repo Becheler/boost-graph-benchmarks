@@ -39,3 +39,36 @@
 
 # debug information files
 *.dwo
+
+# ========================
+# BGL Benchmark specifics
+# ========================
+
+# Per-benchmark virtual environments
+**/venv/
+
+# Build artifacts
+**/build_profile/
+**/build/
+
+# Generated results (reproducible)
+**/results/*.csv
+
+# Temporary benchmark artifacts
+*.bin
+*.tree
+*_genlouvain.txt
+comparison_metrics.txt
+bgl_metrics.txt
+
+# Gen-Louvain (source downloaded and patched via build.sh + timing.patch)
+# Binaries live in build/ (already gitignored above)
+**/gen-louvain/gen-louvain/
+**/gen-louvain/*.tar.gz
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc

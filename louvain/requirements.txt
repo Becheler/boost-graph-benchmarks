@@ -1,0 +1,3 @@
+# Louvain-specific Python dependencies
+# Common deps (networkx, pandas, matplotlib, seaborn, numpy) are in ../requirements-common.txt
+python-igraph>=0.11.0

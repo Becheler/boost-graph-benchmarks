@@ -1,0 +1,30 @@
+--- gen-louvain/src/main_louvain.cpp.orig	2013-07-01 00:00:00.000000000 +0000
++++ gen-louvain/src/main_louvain.cpp	2026-02-18 00:00:00.000000000 +0000
+@@ -34,6 +34,7 @@
+ #include "graph_binary.h"
+ #include "louvain.h"
+ #include <unistd.h>
++#include <chrono>
+ 
+ #include "modularity.h"
+ #include "zahn.h"
+@@ -272,6 +273,8 @@
+   
+   int level = 0;
+   
++  auto louvain_t0 = std::chrono::high_resolution_clock::now();
++
+   do {
+     if (verbose) {
+       cerr << "level " << level << ":\n";
+@@ -309,6 +312,10 @@
+       improvement=true;
+   } while(improvement);
+   
++  auto louvain_t1 = std::chrono::high_resolution_clock::now();
++  double louvain_elapsed = std::chrono::duration<double>(louvain_t1 - louvain_t0).count();
++  cerr << "LOUVAIN_TIME:" << louvain_elapsed << endl;
++
+   time(&time_end);
+   if (verbose) {
+     display_time("End");
