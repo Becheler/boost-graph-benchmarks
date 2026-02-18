@@ -254,3 +254,42 @@ fig.suptitle('Louvain Community Detection: Implementation Comparison',
 plt.savefig('results/benchmark_comparison.png', dpi=300, bbox_inches='tight')
 print("Saved results/benchmark_comparison.png")
 plt.close()
+
+# ---------------------------------------------------------------------------
+# Speedup per BGL variant vs igraph
+# ---------------------------------------------------------------------------
+if os.path.exists('results/bgl_variants_runtime.csv'):
+    df_var = pd.read_csv('results/bgl_variants_runtime.csv')
+    variants = [v for v in df_var['Variant'].unique() if v != 'igraph']
+    variant_colors = {'BGL vecS/vecS': '#2ca02c', 'BGL listS/vecS': '#9467bd',
+                      'BGL setS/vecS': '#8c564b', 'BGL adj_matrix': '#e377c2'}
+
+    fig_vs, axes_vs = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
+
+    for idx, graph_type in enumerate(['LFR', 'ScaleFree']):
+        ax = axes_vs[idx]
+        dt = df_var[df_var['GraphType'] == graph_type]
+        ig = dt[dt['Variant'] == 'igraph'][['Nodes', 'Time']].rename(columns={'Time': 'ig_time'})
+
+        for variant in variants:
+            dv = dt[dt['Variant'] == variant][['Nodes', 'Time']].rename(columns={'Time': 'var_time'})
+            merged = pd.merge(ig, dv, on='Nodes').dropna()
+            if len(merged) == 0:
+                continue
+            speedup = merged['ig_time'] / merged['var_time']
+            ax.plot(merged['Nodes'], speedup, marker='o', linewidth=2,
+                    color=variant_colors.get(variant, '#333333'), label=variant)
+
+        ax.axhline(y=1.0, color='grey', linestyle='--', linewidth=1, alpha=0.7)
+        ax.set_xscale('log')
+        ax.set_xlabel('Number of Nodes', fontweight='bold')
+        ax.set_title(f'{graph_type} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+    axes_vs[0].set_ylabel('Speedup (igraph time / BGL variant time)', fontweight='bold')
+    fig_vs.suptitle('BGL Variant Speedup over igraph', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig('results/speedup.png', dpi=300, bbox_inches='tight')
+    print("Saved results/speedup.png")
+    plt.close()

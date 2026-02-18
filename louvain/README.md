@@ -96,6 +96,8 @@ instantiate the shared `bgl_louvain_benchmark.hpp` template:
 
 ![BGL variants runtime](results/bgl_variants_runtime.png)
 
+![BGL variant speedup over igraph](results/speedup.png)
+
 ![BGL variants correctness](results/bgl_variants_correctness.png)
 
 ## Benchmark Graphs

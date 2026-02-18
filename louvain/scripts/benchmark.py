@@ -180,7 +180,7 @@ def run_benchmark_correctness(n_trials=100):
     print(f"\nSaved to results/correctness.csv ({len(df)} data points)")
     return df
 
-def run_benchmark_runtime(n_trials=3):
+def run_benchmark_runtime(n_trials=10):
     """Run runtime scalability benchmark."""
     # Benchmark fairness notes:
     #   - All C++ implementations (BGL, gen-louvain) compiled with -O3.
@@ -324,7 +324,7 @@ def run_bgl_exe(exe, temp_file, seed='42', timeout=900):
     return None, None, None
 
 
-def run_benchmark_bgl_variants(n_trials=3):
+def run_benchmark_bgl_variants(n_trials=10):
     """Benchmark Louvain across BGL graph data structures + igraph baseline."""
     print("\nBGL Variants Runtime Benchmark")
     print("=" * 60)
