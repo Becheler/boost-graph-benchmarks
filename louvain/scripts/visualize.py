@@ -181,58 +181,70 @@ def _bgl_vs_refs(df, filename):
 # ── runtime plots ────────────────────────────────────────────────────────
 
 
-def _runtime_scalability(df_rt, graph_type, filename, impls=None):
-    """Log-log runtime vs nodes for one graph type."""
+def _runtime_scalability(df_rt, filename, impls=None):
+    """Log-log runtime vs nodes, side-by-side panels for each graph type."""
     if impls is None:
         impls = _ordered(ALL_IMPLEMENTATIONS, df_rt['Implementation'])
     else:
         impls = _ordered(impls, df_rt['Implementation'])
-    dt = df_rt[df_rt['GraphType'] == graph_type]
 
-    markers = ['o', 's', 'D', '^', 'v', 'P', 'X']
-    fig, ax = plt.subplots(figsize=(8, 5))
-    for i, impl in enumerate(impls):
-        di = dt[dt['Implementation'] == impl].dropna(subset=['Time']).sort_values('Nodes')
-        if di.empty:
-            continue
-        ax.errorbar(di['Nodes'], di['Time'], yerr=di['Time_Std'],
-                    marker=markers[i % len(markers)], label=impl, capsize=5,
-                    linewidth=2, color=IMPL_COLORS.get(impl, '#333'))
-    ax.set_xlabel('Number of Nodes', fontweight='bold')
-    ax.set_ylabel('Time (seconds)', fontweight='bold')
-    ax.set_title(f'{graph_type} Graphs: Runtime Scalability', fontsize=12, fontweight='bold')
-    ax.legend(loc='best', fontsize=9)
-    ax.grid(True, alpha=0.3)
-    ax.set_xscale('log'); ax.set_yscale('log')
+    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_rt['GraphType'].values]
+    fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
+                             sharey=True, squeeze=False)
+
+    for idx, gt in enumerate(graph_types):
+        ax = axes[0][idx]
+        dt = df_rt[df_rt['GraphType'] == gt]
+        for i, impl in enumerate(impls):
+            di = dt[dt['Implementation'] == impl].dropna(subset=['Time']).sort_values('Nodes')
+            if di.empty:
+                continue
+            ax.errorbar(di['Nodes'], di['Time'], yerr=di['Time_Std'],
+                        marker='|', markersize=6, label=impl, capsize=3,
+                        linewidth=1, color=IMPL_COLORS.get(impl, '#333'))
+        ax.set_xlabel('Number of Nodes', fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_xscale('log'); ax.set_yscale('log')
+
+    axes[0][0].set_ylabel('Time (seconds)', fontweight='bold')
+    fig.suptitle('Runtime Scalability', fontsize=14, fontweight='bold')
     plt.tight_layout()
     _save(fig, filename)
 
 
-def _communities_detected(df_rt, graph_type, filename, impls=None):
-    """Communities detected vs nodes for one graph type."""
+def _communities_detected(df_rt, filename, impls=None):
+    """Communities detected vs nodes, side-by-side panels for each graph type."""
     if impls is None:
         impls = _ordered(ALL_IMPLEMENTATIONS, df_rt['Implementation'])
     else:
         impls = _ordered(impls, df_rt['Implementation'])
-    dt = df_rt[df_rt['GraphType'] == graph_type]
-    if 'Communities' not in dt.columns:
+    if 'Communities' not in df_rt.columns:
         return
 
-    markers = ['o', 's', 'D', '^', 'v', 'P', 'X']
-    fig, ax = plt.subplots(figsize=(8, 5))
-    for i, impl in enumerate(impls):
-        di = dt[dt['Implementation'] == impl].dropna(subset=['Communities']).sort_values('Nodes')
-        if di.empty:
-            continue
-        ax.errorbar(di['Nodes'], di['Communities'], yerr=di['Communities_Std'],
-                    marker=markers[i % len(markers)], label=impl, capsize=5,
-                    linewidth=2, color=IMPL_COLORS.get(impl, '#333'))
-    ax.set_xlabel('Number of Nodes', fontweight='bold')
-    ax.set_ylabel('Communities Found', fontweight='bold')
-    ax.set_title(f'{graph_type} Graphs: Communities Detected', fontsize=12, fontweight='bold')
-    ax.legend(loc='best', fontsize=9)
-    ax.grid(True, alpha=0.3)
-    ax.set_xscale('log')
+    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_rt['GraphType'].values]
+    fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
+                             sharey=True, squeeze=False)
+
+    for idx, gt in enumerate(graph_types):
+        ax = axes[0][idx]
+        dt = df_rt[df_rt['GraphType'] == gt]
+        for i, impl in enumerate(impls):
+            di = dt[dt['Implementation'] == impl].dropna(subset=['Communities']).sort_values('Nodes')
+            if di.empty:
+                continue
+            ax.errorbar(di['Nodes'], di['Communities'], yerr=di['Communities_Std'],
+                        marker='|', markersize=6, label=impl, capsize=3,
+                        linewidth=1, color=IMPL_COLORS.get(impl, '#333'))
+        ax.set_xlabel('Number of Nodes', fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_xscale('log')
+
+    axes[0][0].set_ylabel('Communities Found', fontweight='bold')
+    fig.suptitle('Communities Detected vs Graph Size', fontsize=14, fontweight='bold')
     plt.tight_layout()
     _save(fig, filename)
 
@@ -246,7 +258,6 @@ def _speedup_over_igraph(df_rt, filename):
 
     graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_rt['GraphType'].values]
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5), sharey=True, squeeze=False)
-    markers = ['o', 's', 'D', '^', 'v', 'P', 'X']
 
     for idx, gt in enumerate(graph_types):
         ax = axes[0][idx]
@@ -258,7 +269,7 @@ def _speedup_over_igraph(df_rt, filename):
             if merged.empty:
                 continue
             ax.plot(merged['Nodes'], merged['ig_time'] / merged['impl_time'],
-                    marker=markers[j % len(markers)], linewidth=2,
+                    marker='|', markersize=6, linewidth=1,
                     color=IMPL_COLORS.get(impl, '#333'), label=impl)
         ax.axhline(y=1.0, color='grey', linestyle='--', linewidth=1, alpha=0.7)
         ax.set_xscale('log')
@@ -300,9 +311,8 @@ if os.path.exists('results/runtime.csv'):
     print(f"Loaded {len(df_rt)} rows from results/runtime.csv")
     print(f"Implementations: {', '.join(df_rt['Implementation'].unique())}")
     print()
-    for gt in ['LFR', 'ScaleFree']:
-        _runtime_scalability(df_rt, gt, f'results/runtime_{gt.lower()}.png')
-        _communities_detected(df_rt, gt, f'results/communities_{gt.lower()}.png')
+    _runtime_scalability(df_rt, 'results/runtime.png')
+    _communities_detected(df_rt, 'results/communities.png')
     _speedup_over_igraph(df_rt, 'results/speedup.png')
 
 # ── incremental vs non-incremental plots ─────────────────────────────────
@@ -321,7 +331,6 @@ def _inc_speedup(df_inc, filename):
     fig, axes = plt.subplots(1, len(graph_types),
                              figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
-    markers = ['o', 's', 'D', '^']
     variant_colors = {v: IMPL_COLORS.get(v, f'C{i}') for i, v in enumerate(variants)}
 
     for idx, gt in enumerate(graph_types):
@@ -339,7 +348,7 @@ def _inc_speedup(df_inc, filename):
                 continue
             speedup = merged['t_noinc'] / merged['t_inc']
             ax.plot(merged['Nodes'], speedup,
-                    marker=markers[j % len(markers)], linewidth=2,
+                    marker='|', markersize=6, linewidth=1,
                     color=variant_colors.get(variant, '#333'), label=variant)
 
         ax.axhline(y=1.0, color='grey', linestyle='--', linewidth=1, alpha=0.7)
@@ -400,11 +409,12 @@ def _inc_runtime(df_inc, filename):
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
         ax.set_ylabel('Time (seconds)', fontweight='bold')
-        ax.set_title(f'{gt} Graphs: Inc vs Non-Inc Runtime', fontsize=12, fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
         ax.legend(loc='best', fontsize=9)
         ax.set_yscale('log')
         ax.grid(axis='y', alpha=0.3)
 
+    fig.suptitle('Incremental vs Non-Incremental Runtime', fontsize=14, fontweight='bold')
     plt.tight_layout()
     _save(fig, filename)
 
@@ -452,10 +462,11 @@ def _inc_correctness(df_inc, filename):
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
         ax.set_ylabel('Modularity (Q)', fontweight='bold')
-        ax.set_title(f'{gt} Graphs: Inc vs Non-Inc Modularity', fontsize=12, fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
         ax.legend(loc='best', fontsize=9)
         ax.grid(axis='y', alpha=0.3)
 
+    fig.suptitle('Incremental vs Non-Incremental Modularity', fontsize=14, fontweight='bold')
     plt.tight_layout()
     _save(fig, filename)
 

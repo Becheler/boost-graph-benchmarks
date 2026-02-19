@@ -39,17 +39,11 @@ Direct percentage difference between each BGL variant's modularity and each refe
 
 ### Runtime
 
-Wall-clock time vs graph size on LFR benchmark graphs (log-log), measuring how each implementation's runtime scales with realistic community structure.
-![Runtime LFR](results/runtime_lfr.png)
+Wall-clock time vs graph size (log-log) on LFR and scale-free graphs side by side, measuring how each implementation's runtime scales.
+![Runtime](results/runtime.png)
 
-Same scalability measurement on scale-free (Barabási–Albert) graphs, which have a different degree distribution.
-![Runtime ScaleFree](results/runtime_scalefree.png)
-
-Number of communities detected vs graph size on LFR graphs, checking that implementations agree on partition granularity as graphs grow.
-![Communities LFR](results/communities_lfr.png)
-
-Same community count comparison on scale-free graphs.
-![Communities ScaleFree](results/communities_scalefree.png)
+Number of communities detected vs graph size on both graph types, checking that implementations agree on partition granularity as graphs grow.
+![Communities](results/communities.png)
 
 Speedup of each implementation relative to igraph, showing which are faster (>1) or slower (<1) across graph sizes.
 ![Speedup over igraph](results/speedup.png)
