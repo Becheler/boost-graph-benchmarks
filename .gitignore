@@ -51,9 +51,6 @@
 **/build_profile/
 **/build/
 
-# Generated results (reproducible)
-**/results/*.csv
-
 # Temporary benchmark artifacts
 *.bin
 *.tree

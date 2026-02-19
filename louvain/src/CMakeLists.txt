@@ -28,12 +28,26 @@ set(BGL_VARIANTS
     bgl_louvain_matrix         # adjacency_matrix
 )
 
+# Non-incremental quality function variants (force full modularity recomputation)
+set(BGL_VARIANTS_NOINC
+    bgl_louvain_vecS_vecS_noinc
+    bgl_louvain_listS_vecS_noinc
+    bgl_louvain_setS_vecS_noinc
+    bgl_louvain_matrix_noinc
+)
+
 # NOTE: listS-as-VertexList variants (vecS_listS, listS_listS) are not
 # included here because they are uncommon in practice. The refactored
 # louvain_clustering.hpp now uses vertex_index maps internally and
 # supports arbitrary VertexList selectors.
 
 foreach(variant ${BGL_VARIANTS})
+    add_executable(${variant} ${variant}.cpp)
+    target_link_libraries(${variant} ${Boost_LIBRARIES})
+    target_compile_options(${variant} PRIVATE -O3)
+endforeach()
+
+foreach(variant ${BGL_VARIANTS_NOINC})
     add_executable(${variant} ${variant}.cpp)
     target_link_libraries(${variant} ${Boost_LIBRARIES})
     target_compile_options(${variant} PRIVATE -O3)

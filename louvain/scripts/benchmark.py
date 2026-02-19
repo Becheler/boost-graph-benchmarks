@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
 Benchmark suite for Louvain community detection.
-Tests BGL implementation against NetworkX, igraph, and genlouvain.
+
+Produces two unified CSVs that cover **every** implementation
+(NetworkX, igraph, genlouvain, and all four BGL graph-type variants):
+
+  results/correctness.csv   — per-trial modularity & community count
+  results/runtime.csv       — mean/std runtime & community count at scale
 """
 
+import argparse
 import networkx as nx
 import igraph as ig
 import subprocess
@@ -13,34 +19,65 @@ import time
 import pandas as pd
 import numpy as np
 
+# ── helpers ──────────────────────────────────────────────────────────────
+
+ALL_BGL_VARIANTS = {
+    'BGL vecS/vecS':  './build/bgl_louvain_vecS_vecS',
+    'BGL listS/vecS': './build/bgl_louvain_listS_vecS',
+    'BGL setS/vecS':  './build/bgl_louvain_setS_vecS',
+    'BGL adj_matrix': './build/bgl_louvain_matrix',
+}
+
+MATRIX_MAX_NODES = 5000  # adjacency_matrix is O(V^2) memory
+
+ALL_BGL_VARIANTS_NOINC = {
+    'BGL vecS/vecS (non-inc)':  './build/bgl_louvain_vecS_vecS_noinc',
+    'BGL listS/vecS (non-inc)': './build/bgl_louvain_listS_vecS_noinc',
+    'BGL setS/vecS (non-inc)':  './build/bgl_louvain_setS_vecS_noinc',
+    'BGL adj_matrix (non-inc)': './build/bgl_louvain_matrix_noinc',
+}
+
+# Mapping from non-inc label to its incremental counterpart
+NOINC_TO_INC = {
+    'BGL vecS/vecS (non-inc)':  'BGL vecS/vecS',
+    'BGL listS/vecS (non-inc)': 'BGL listS/vecS',
+    'BGL setS/vecS (non-inc)':  'BGL setS/vecS',
+    'BGL adj_matrix (non-inc)': 'BGL adj_matrix',
+}
+
+
 def write_edgelist(G, filename):
     """Write graph to edge list format."""
     if not all(isinstance(n, int) for n in G.nodes()):
         mapping = {node: i for i, node in enumerate(G.nodes())}
         G = nx.relabel_nodes(G, mapping)
-    
+
     with open(filename, 'w') as f:
         f.write(f"{G.number_of_nodes()} {G.number_of_edges()}\n")
         for u, v in G.edges():
             weight = G[u][v].get('weight', 1.0)
             f.write(f"{u} {v} {weight}\n")
 
+
 def genlouvain_available():
     """Check if gen-louvain binaries are present in the build directory."""
-    return all(os.path.exists(f'./build/genlouvain_{b}') for b in ['convert', 'louvain', 'hierarchy'])
+    return all(
+        os.path.exists(f'./build/genlouvain_{b}')
+        for b in ['convert', 'louvain', 'hierarchy']
+    )
 
 
 def run_genlouvain(edgelist_file, seed=42):
     """Run genlouvain implementation. Returns (time, Q, n_communities)."""
     build_dir = './build'
-    
+
     if not genlouvain_available():
         return None, None, None
-    
+
     temp_txt = edgelist_file.replace('.txt', '_genlouvain.txt')
     temp_bin = edgelist_file.replace('.txt', '.bin')
     temp_tree = temp_bin + '.tree'
-    
+
     try:
         with open(edgelist_file, 'r') as f_in:
             lines = f_in.readlines()
@@ -49,14 +86,17 @@ def run_genlouvain(edgelist_file, seed=42):
                     parts = line.strip().split()
                     if len(parts) >= 2:
                         f_out.write(f"{parts[0]} {parts[1]}\n")
-        
-        subprocess.run([f'{build_dir}/genlouvain_convert', '-i', temp_txt, '-o', temp_bin],
-                      capture_output=True, text=True, timeout=30, check=True)
-        
-        result = subprocess.run([f'{build_dir}/genlouvain_louvain', temp_bin, '-l', '-1', '-q', '0'],
-                               capture_output=True, text=True, timeout=300, check=True)
-        
-        # Parse LOUVAIN_TIME and modularity from stderr
+
+        subprocess.run(
+            [f'{build_dir}/genlouvain_convert', '-i', temp_txt, '-o', temp_bin],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+
+        result = subprocess.run(
+            [f'{build_dir}/genlouvain_louvain', temp_bin, '-l', '-1', '-q', '0'],
+            capture_output=True, text=True, timeout=300, check=True,
+        )
+
         louvain_time = None
         Q = None
         for line in result.stderr.strip().split('\n'):
@@ -67,245 +107,53 @@ def run_genlouvain(edgelist_file, seed=42):
                     Q = float(line.strip())
                 except ValueError:
                     pass
-        
+
         with open(temp_tree, 'w') as f:
             f.write(result.stdout)
-        
-        result = subprocess.run([f'{build_dir}/genlouvain_hierarchy', temp_tree, '-n'],
-                              capture_output=True, text=True, timeout=10)
+
+        result = subprocess.run(
+            [f'{build_dir}/genlouvain_hierarchy', temp_tree, '-n'],
+            capture_output=True, text=True, timeout=10,
+        )
         lines = result.stdout.strip().split('\n')
         num_levels = int(lines[0].split(':')[1].strip())
-        
-        result = subprocess.run([f'{build_dir}/genlouvain_hierarchy', temp_tree, '-l', str(num_levels - 1)],
-                              capture_output=True, text=True, timeout=10)
-        
+
+        result = subprocess.run(
+            [f'{build_dir}/genlouvain_hierarchy', temp_tree, '-l', str(num_levels - 1)],
+            capture_output=True, text=True, timeout=10,
+        )
+
         partition_dict = {}
         for line in result.stdout.strip().split('\n'):
             if line:
                 parts = line.split()
                 if len(parts) >= 2:
                     try:
-                        node_id = int(parts[0])
-                        comm_id = int(parts[1])
-                        partition_dict[node_id] = comm_id
+                        partition_dict[int(parts[0])] = int(parts[1])
                     except ValueError:
                         continue
-        
+
         num_communities = len(set(partition_dict.values()))
-        
+
         for f in [temp_txt, temp_bin, temp_tree]:
             if f and os.path.exists(f):
                 os.remove(f)
-        
+
         return louvain_time, Q, num_communities
-    except:
+    except Exception:
         for f in [temp_txt, temp_bin, temp_tree]:
             if f and os.path.exists(f):
                 os.remove(f)
         return None, None, None
 
-def run_benchmark_correctness(n_trials=100):
-    """Run correctness benchmark on standard graphs."""
-    print("Correctness Benchmark")
-    print("=" * 60)
-    
-    test_graphs = {
-        'Karate Club': nx.karate_club_graph(),
-        'Les Misérables': nx.les_miserables_graph(),
-        'Watts-Strogatz': nx.watts_strogatz_graph(100, 6, 0.1, seed=42),
-        'Barabási-Albert': nx.barabasi_albert_graph(100, 3, seed=42),
-        'Caveman': nx.caveman_graph(10, 10),
-        'Florentine Families': nx.florentine_families_graph(),
-        'Davis Southern Women': nx.davis_southern_women_graph(),
-        'Petersen': nx.petersen_graph(),
-        'Planted Partition': nx.generators.community.planted_partition_graph(4, 20, 0.5, 0.1, seed=42)
-    }
-    
-    all_data = []
-    
-    for graph_name, G in test_graphs.items():
-        print(f"\n{graph_name} (n={G.number_of_nodes()}, m={G.number_of_edges()})")
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            write_edgelist(G, f.name)
-            temp_file = f.name
-        
-        for trial in range(n_trials):
-            seed = trial
-            
-            # NetworkX
-            communities = nx.algorithms.community.louvain_communities(G, seed=seed)
-            partition = {node: i for i, comm in enumerate(communities) for node in comm}
-            Q_nx = nx.algorithms.community.modularity(G, communities)
-            all_data.append({'Graph': graph_name, 'Implementation': 'Networkx', 
-                           'Modularity': Q_nx, 'Communities': len(communities)})
-            
-            # igraph
-            if not all(isinstance(n, int) for n in G.nodes()):
-                mapping = {node: i for i, node in enumerate(G.nodes())}
-                G_mapped = nx.relabel_nodes(G, mapping)
-                edges = list(G_mapped.edges())
-            else:
-                edges = list(G.edges())
-            g_ig = ig.Graph(n=G.number_of_nodes(), edges=edges)
-            np.random.seed(seed)
-            part_ig = g_ig.community_multilevel()
-            Q_ig = part_ig.modularity
-            all_data.append({'Graph': graph_name, 'Implementation': 'Igraph',
-                           'Modularity': Q_ig, 'Communities': len(part_ig)})
-            
-            # BGL
-            result = subprocess.run(['./build/bgl_louvain_vecS_vecS', temp_file, str(seed)],
-                                  capture_output=True, text=True)
-            lines = result.stdout.strip().split('\n')
-            if len(lines) >= 2:
-                Q_bgl = float(lines[0])
-                partition_bgl = [int(x) for x in lines[1].split()]
-                n_comm_bgl = len(set(partition_bgl))
-                all_data.append({'Graph': graph_name, 'Implementation': 'BGL',
-                               'Modularity': Q_bgl, 'Communities': n_comm_bgl})
-            
-            # genlouvain
-            _, Q_gen, n_comm_gen = run_genlouvain(temp_file, seed)
-            if Q_gen is not None:
-                all_data.append({'Graph': graph_name, 'Implementation': 'Genlouvain',
-                               'Modularity': Q_gen, 'Communities': n_comm_gen})
-            elif trial == 0:
-                print(f"  (genlouvain not available)")
-        
-        os.unlink(temp_file)
-    
-    df = pd.DataFrame(all_data)
-    df.to_csv('results/correctness.csv', index=False)
-    print(f"\nSaved to results/correctness.csv ({len(df)} data points)")
-    return df
-
-def run_benchmark_runtime(n_trials=10):
-    """Run runtime scalability benchmark."""
-    # Benchmark fairness notes:
-    #   - All C++ implementations (BGL, gen-louvain) compiled with -O3.
-    #   - igraph is a pre-compiled pip wheel (release-optimized).
-    #   - Timing measures ONLY the clustering algorithm, never graph I/O:
-    #       * BGL & gen-louvain: internal std::chrono timing printed as LOUVAIN_TIME.
-    #       * igraph & NetworkX: time.time() wrapping only the community call.
-    #   - One warm-up trial per implementation is run before measured trials
-    #     to populate CPU/file-system caches and JIT any interpreter paths.
-    #   - The igraph graph object is built once and reused across trials.
-    print("\nRuntime Benchmark")
-    print("=" * 60)
-    #sizes = [1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000]    
-    sizes = [1000, 2500, 5000, 10000, 25000, 50000]
-    graph_types = ['LFR', 'ScaleFree']
-    results = []
-    
-    for graph_type in graph_types:
-        print(f"\n{graph_type}:")
-        for n in sizes:
-            print(f"  n={n:,}...", end=' ', flush=True)
-            
-            if graph_type == 'LFR':
-                try:
-                    G = nx.generators.community.LFR_benchmark_graph(
-                        n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
-                        max_degree=min(50, n//10), min_community=max(10, n//100),
-                        max_community=min(n//10, n//2), seed=42)
-                except:
-                    G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
-            else:
-                G = nx.barabasi_albert_graph(n, 3, seed=42)
-            
-            m = G.number_of_edges()
-            times_nx, times_ig, times_bgl, times_gen = [], [], [], []
-            comms_nx, comms_ig, comms_bgl = [], [], []
-            has_genlouvain = genlouvain_available()
-            
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-                write_edgelist(G, f.name)
-                temp_file = f.name
-            
-            # Build igraph graph once (construction cost is not part of the measurement)
-            edges = list(G.edges())
-            g_ig = ig.Graph(n=G.number_of_nodes(), edges=edges)
-
-            # Warm-up: run each implementation once to populate caches.
-            # Results are discarded.
-            nx.algorithms.community.louvain_communities(G, seed=42)
-            g_ig.community_multilevel()
-            subprocess.run(['./build/bgl_louvain_vecS_vecS', temp_file, '42'],
-                           capture_output=True, text=True, timeout=900)
-            if has_genlouvain:
-                run_genlouvain(temp_file, 42)
-
-            for _ in range(n_trials):
-                start = time.time()
-                communities_nx = nx.algorithms.community.louvain_communities(G, seed=42)
-                times_nx.append(time.time() - start)
-                comms_nx.append(len(communities_nx))
-                
-                start = time.time()
-                partition_ig = g_ig.community_multilevel()
-                times_ig.append(time.time() - start)
-                comms_ig.append(len(partition_ig))
-                
-                result = subprocess.run(['./build/bgl_louvain_vecS_vecS', temp_file, '42'],
-                             capture_output=True, text=True, timeout=900)
-                # Parse LOUVAIN_TIME from stderr
-                louvain_time = None
-                for line in result.stderr.split('\n'):
-                    if line.startswith('LOUVAIN_TIME:'):
-                        louvain_time = float(line.split(':')[1].strip())
-                        break
-                if louvain_time is not None:
-                    times_bgl.append(louvain_time)
-                else:
-                    # Fallback: use subprocess time (shouldn't happen)
-                    times_bgl.append(0.0)
-                
-                lines = result.stdout.strip().split('\n')
-                if len(lines) >= 2:
-                    partition_bgl = [int(x) for x in lines[1].split()]
-                    comms_bgl.append(len(set(partition_bgl)))
-                
-                # gen-louvain (internal timing via LOUVAIN_TIME)
-                if has_genlouvain:
-                    t_gen, _, _ = run_genlouvain(temp_file, 42)
-                    if t_gen is not None:
-                        times_gen.append(t_gen)
-            
-            os.unlink(temp_file)
-            
-            row = {
-                'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                'NetworkX_Time': np.mean(times_nx), 'NetworkX_Std': np.std(times_nx),
-                'Igraph_Time': np.mean(times_ig), 'Igraph_Std': np.std(times_ig),
-                'BGL_Time': np.mean(times_bgl), 'BGL_Std': np.std(times_bgl),
-                'NetworkX_Communities': np.mean(comms_nx), 'NetworkX_Communities_Std': np.std(comms_nx),
-                'Igraph_Communities': np.mean(comms_ig), 'Igraph_Communities_Std': np.std(comms_ig),
-                'BGL_Communities': np.mean(comms_bgl), 'BGL_Communities_Std': np.std(comms_bgl),
-            }
-            if times_gen:
-                row['Genlouvain_Time'] = np.mean(times_gen)
-                row['Genlouvain_Std'] = np.std(times_gen)
-            else:
-                row['Genlouvain_Time'] = float('nan')
-                row['Genlouvain_Std'] = float('nan')
-            results.append(row)
-            
-            summary = f"NX {np.mean(times_nx):.3f}s, ig {np.mean(times_ig):.3f}s, BGL {np.mean(times_bgl):.3f}s"
-            if times_gen:
-                summary += f", gen {np.mean(times_gen):.3f}s"
-            print(summary)
-    
-    df = pd.DataFrame(results)
-    df.to_csv('results/runtime.csv', index=False)
-    print(f"\nSaved to results/runtime.csv")
-    return df
 
 def run_bgl_exe(exe, temp_file, seed='42', timeout=900):
     """Run a BGL executable and parse LOUVAIN_TIME, modularity, and partition."""
     try:
-        result = subprocess.run([exe, temp_file, str(seed)],
-                                capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(
+            [exe, temp_file, str(seed)],
+            capture_output=True, text=True, timeout=timeout,
+        )
         if result.returncode != 0:
             return None, None, None
 
@@ -324,29 +172,149 @@ def run_bgl_exe(exe, temp_file, seed='42', timeout=900):
     return None, None, None
 
 
-def run_benchmark_bgl_variants(n_trials=10):
-    """Benchmark Louvain across BGL graph data structures + igraph baseline."""
-    print("\nBGL Variants Runtime Benchmark")
+def _remap_graph(G):
+    """Ensure all node labels are contiguous ints starting at 0."""
+    G = nx.Graph(G)  # strip multi-edge / directed
+    if not all(isinstance(n, int) for n in G.nodes()):
+        mapping = {node: i for i, node in enumerate(G.nodes())}
+        G = nx.relabel_nodes(G, mapping)
+    return G
+
+
+# ── correctness ─────────────────────────────────────────────────────────
+
+def run_benchmark_correctness(n_trials=100):
+    """Run correctness benchmark on standard graphs.
+
+    Every implementation (NetworkX, igraph, genlouvain, and all four BGL
+    graph variants) is tested on every graph.
+
+    Output: results/correctness.csv
+        Columns: Graph, Implementation, Modularity, Communities
+    """
+    print("Correctness Benchmark")
     print("=" * 60)
 
-    bgl_variants = {
-        'BGL vecS/vecS':  './build/bgl_louvain_vecS_vecS',
-        'BGL listS/vecS': './build/bgl_louvain_listS_vecS',
-        'BGL setS/vecS':  './build/bgl_louvain_setS_vecS',
-        'BGL adj_matrix': './build/bgl_louvain_matrix',
+    test_graphs = {
+        'Karate Club':        nx.karate_club_graph(),
+        'Les Misérables':     nx.les_miserables_graph(),
+        'Watts-Strogatz':     nx.watts_strogatz_graph(100, 6, 0.1, seed=42),
+        'Barabási-Albert':    nx.barabasi_albert_graph(100, 3, seed=42),
+        'Caveman':            nx.caveman_graph(10, 10),
+        'Florentine Families': nx.florentine_families_graph(),
+        'Davis Southern Women': nx.davis_southern_women_graph(),
+        'Petersen':           nx.petersen_graph(),
+        'Planted Partition':  nx.generators.community.planted_partition_graph(
+                                  4, 20, 0.5, 0.1, seed=42),
     }
 
-    available = {}
-    for name, exe in bgl_variants.items():
-        if os.path.exists(exe):
-            available[name] = exe
-            print(f"  Found {name}")
-        else:
-            print(f"  WARNING: {name} not found at {exe}, skipping")
+    # Discover available BGL binaries
+    available_bgl = {n: e for n, e in ALL_BGL_VARIANTS.items()
+                     if os.path.exists(e)}
+    has_gen = genlouvain_available()
 
-    sizes = [1000, 2500, 5000, 10000, 25000, 50000]
-    matrix_max_size = 5000  # O(V^2) memory
+    all_data = []
+
+    for graph_name, G_raw in test_graphs.items():
+        G = _remap_graph(G_raw)
+        n = G.number_of_nodes()
+        m = G.number_of_edges()
+        print(f"\n  {graph_name} (n={n}, m={m})")
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
+                                         delete=False) as f:
+            write_edgelist(G, f.name)
+            temp_file = f.name
+
+        for trial in range(n_trials):
+            seed = trial
+
+            # ── NetworkX ──
+            communities = nx.algorithms.community.louvain_communities(G, seed=seed)
+            Q_nx = nx.algorithms.community.modularity(G, communities)
+            all_data.append({
+                'Graph': graph_name, 'Implementation': 'NetworkX',
+                'Modularity': Q_nx, 'Communities': len(communities),
+            })
+
+            # ── igraph ──
+            edges = list(G.edges())
+            g_ig = ig.Graph(n=n, edges=edges)
+            np.random.seed(seed)
+            part_ig = g_ig.community_multilevel()
+            all_data.append({
+                'Graph': graph_name, 'Implementation': 'igraph',
+                'Modularity': part_ig.modularity,
+                'Communities': len(part_ig),
+            })
+
+            # ── genlouvain ──
+            if has_gen:
+                _, Q_gen, n_comm_gen = run_genlouvain(temp_file, seed)
+                if Q_gen is not None:
+                    all_data.append({
+                        'Graph': graph_name, 'Implementation': 'genlouvain',
+                        'Modularity': Q_gen, 'Communities': n_comm_gen,
+                    })
+            elif trial == 0:
+                print("    (genlouvain not available)")
+
+            # ── BGL variants ──
+            for bgl_name, exe in available_bgl.items():
+                _, Q, partition = run_bgl_exe(exe, temp_file, seed)
+                if Q is not None:
+                    all_data.append({
+                        'Graph': graph_name, 'Implementation': bgl_name,
+                        'Modularity': Q,
+                        'Communities': len(set(partition)),
+                    })
+
+        os.unlink(temp_file)
+
+        # summary per graph
+        df_g = pd.DataFrame([d for d in all_data if d['Graph'] == graph_name])
+        for impl in df_g['Implementation'].unique():
+            df_i = df_g[df_g['Implementation'] == impl]
+            print(f"    {impl:20s}: Q={df_i['Modularity'].mean():.4f} "
+                  f"(±{df_i['Modularity'].std():.4f}), "
+                  f"communities={df_i['Communities'].mean():.1f}")
+
+    df = pd.DataFrame(all_data)
+    df.to_csv('results/correctness.csv', index=False)
+    print(f"\nSaved to results/correctness.csv ({len(df)} data points)")
+    return df
+
+
+# ── runtime scalability ─────────────────────────────────────────────────
+
+def run_benchmark_runtime(n_trials=10, sizes=None):
+    """Run runtime scalability benchmark.
+
+    Benchmark fairness notes:
+      - All C++ implementations (BGL, gen-louvain) compiled with -O3.
+      - igraph is a pre-compiled pip wheel (release-optimized).
+      - Timing measures ONLY the clustering algorithm, never graph I/O:
+          * BGL & gen-louvain: internal std::chrono timing (LOUVAIN_TIME).
+          * igraph & NetworkX: time.time() wrapping only the community call.
+      - One warm-up trial per implementation is run before measured trials
+        to populate CPU/file-system caches and JIT any interpreter paths.
+      - The igraph graph object is built once and reused across trials.
+
+    Output: results/runtime.csv
+        Columns: GraphType, Nodes, Edges, Implementation,
+                 Time, Time_Std, Communities, Communities_Std
+    """
+    print("\nRuntime Benchmark")
+    print("=" * 60)
+
+    if sizes is None:
+        sizes = [1000, 5000, 10000, 50000, 100000, 250000]
     graph_types = ['LFR', 'ScaleFree']
+
+    available_bgl = {n: e for n, e in ALL_BGL_VARIANTS.items()
+                     if os.path.exists(e)}
+    has_gen = genlouvain_available()
+
     results = []
 
     for graph_type in graph_types:
@@ -358,235 +326,299 @@ def run_benchmark_bgl_variants(n_trials=10):
                 try:
                     G = nx.generators.community.LFR_benchmark_graph(
                         n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
-                        max_degree=min(50, n//10), min_community=max(10, n//100),
-                        max_community=min(n//10, n//2), seed=42)
-                except:
+                        max_degree=min(50, n // 10),
+                        min_community=max(10, n // 100),
+                        max_community=min(n // 10, n // 2), seed=42)
+                except Exception:
                     G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
             else:
                 G = nx.barabasi_albert_graph(n, 3, seed=42)
 
             m = G.number_of_edges()
 
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
+                                             delete=False) as f:
                 write_edgelist(G, f.name)
                 temp_file = f.name
 
-            # igraph baseline
-            times_ig = []
+            # Build igraph graph once
             edges = list(G.edges())
-            for _ in range(n_trials):
-                g_ig = ig.Graph(n=G.number_of_nodes(), edges=edges)
-                start = time.time()
-                g_ig.community_multilevel()
-                times_ig.append(time.time() - start)
-            avg_ig = np.mean(times_ig)
-            results.append({'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                            'Variant': 'igraph', 'Time': avg_ig, 'Time_Std': np.std(times_ig)})
-            summary = [f"igraph {avg_ig:.4f}s"]
+            g_ig = ig.Graph(n=G.number_of_nodes(), edges=edges)
 
-            # BGL variants
-            for name, exe in available.items():
-                if name == 'BGL adj_matrix' and n > matrix_max_size:
-                    results.append({'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                                    'Variant': name, 'Time': float('nan'), 'Time_Std': float('nan')})
-                    summary.append(f"{name.split()[-1]} SKIP")
+            # ── warm-up (results discarded) ──
+            nx.algorithms.community.louvain_communities(G, seed=42)
+            g_ig.community_multilevel()
+            if 'BGL vecS/vecS' in available_bgl:
+                subprocess.run(
+                    [available_bgl['BGL vecS/vecS'], temp_file, '42'],
+                    capture_output=True, text=True, timeout=900,
+                )
+            if has_gen:
+                run_genlouvain(temp_file, 42)
+
+            summary_parts = []
+
+            # ── NetworkX ──
+            times, comms = [], []
+            for _ in range(n_trials):
+                start = time.time()
+                communities = nx.algorithms.community.louvain_communities(
+                    G, seed=42)
+                times.append(time.time() - start)
+                comms.append(len(communities))
+            results.append({
+                'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                'Implementation': 'NetworkX',
+                'Time': np.mean(times), 'Time_Std': np.std(times),
+                'Communities': np.mean(comms),
+                'Communities_Std': np.std(comms),
+            })
+            summary_parts.append(f"NX {np.mean(times):.3f}s")
+
+            # ── igraph ──
+            times, comms = [], []
+            for _ in range(n_trials):
+                start = time.time()
+                part = g_ig.community_multilevel()
+                times.append(time.time() - start)
+                comms.append(len(part))
+            results.append({
+                'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                'Implementation': 'igraph',
+                'Time': np.mean(times), 'Time_Std': np.std(times),
+                'Communities': np.mean(comms),
+                'Communities_Std': np.std(comms),
+            })
+            summary_parts.append(f"ig {np.mean(times):.3f}s")
+
+            # ── genlouvain ──
+            if has_gen:
+                times = []
+                for _ in range(n_trials):
+                    t_gen, _, _ = run_genlouvain(temp_file, 42)
+                    if t_gen is not None:
+                        times.append(t_gen)
+                if times:
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Implementation': 'genlouvain',
+                        'Time': np.mean(times), 'Time_Std': np.std(times),
+                        'Communities': float('nan'),
+                        'Communities_Std': float('nan'),
+                    })
+                    summary_parts.append(f"gen {np.mean(times):.3f}s")
+
+            # ── BGL variants ──
+            for bgl_name, exe in available_bgl.items():
+                if bgl_name == 'BGL adj_matrix' and n > MATRIX_MAX_NODES:
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Implementation': bgl_name,
+                        'Time': float('nan'), 'Time_Std': float('nan'),
+                        'Communities': float('nan'),
+                        'Communities_Std': float('nan'),
+                    })
+                    short = bgl_name.split()[-1]
+                    summary_parts.append(f"{short} SKIP")
                     continue
 
-                times_v = []
+                times, comms = [], []
                 for _ in range(n_trials):
-                    t, _, _ = run_bgl_exe(exe, temp_file)
+                    t, _, partition = run_bgl_exe(exe, temp_file)
                     if t is not None:
-                        times_v.append(t)
+                        times.append(t)
+                    if partition is not None:
+                        comms.append(len(set(partition)))
 
-                if times_v:
-                    avg = np.mean(times_v)
-                    results.append({'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                                    'Variant': name, 'Time': avg, 'Time_Std': np.std(times_v)})
-                    summary.append(f"{name.split()[-1]} {avg:.4f}s")
+                if times:
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Implementation': bgl_name,
+                        'Time': np.mean(times), 'Time_Std': np.std(times),
+                        'Communities': np.mean(comms) if comms else float('nan'),
+                        'Communities_Std': np.std(comms) if comms else float('nan'),
+                    })
+                    short = bgl_name.split()[-1]
+                    summary_parts.append(f"{short} {np.mean(times):.4f}s")
                 else:
-                    results.append({'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                                    'Variant': name, 'Time': float('nan'), 'Time_Std': float('nan')})
-                    summary.append(f"{name.split()[-1]} FAIL")
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Implementation': bgl_name,
+                        'Time': float('nan'), 'Time_Std': float('nan'),
+                        'Communities': float('nan'),
+                        'Communities_Std': float('nan'),
+                    })
+                    short = bgl_name.split()[-1]
+                    summary_parts.append(f"{short} FAIL")
 
             os.unlink(temp_file)
-            print(', '.join(summary))
+            print(', '.join(summary_parts))
 
     df = pd.DataFrame(results)
-    df.to_csv('results/bgl_variants_runtime.csv', index=False)
-    print(f"\nSaved to results/bgl_variants_runtime.csv")
+    df.to_csv('results/runtime.csv', index=False)
+    print(f"\nSaved to results/runtime.csv")
     return df
 
 
-def run_benchmark_bgl_variants_correctness(n_trials=10):
-    """Verify all BGL variants produce correct modularity scores."""
-    print("\nBGL Variants Correctness")
+# ── incremental vs non-incremental quality function ─────────────────────
+
+def run_benchmark_incremental(n_trials=10, sizes=None):
+    """Compare incremental vs non-incremental quality function.
+
+    The incremental path computes gain() in O(degree) per candidate move;
+    the non-incremental path recomputes full graph modularity in O(E).
+    Non-incremental is dramatically slower, so sizes are kept small.
+
+    For each BGL graph-type variant, we run both the incremental (default)
+    and non-incremental executable on the same graphs and measure:
+      - runtime (Time, Time_Std)
+      - correctness (Modularity, Communities)
+
+    Output: results/incremental.csv
+        Columns: GraphType, Nodes, Edges, Variant, Mode, Time, Time_Std,
+                 Modularity, Modularity_Std, Communities, Communities_Std
+    """
+    print("\nIncremental vs Non-Incremental Quality Function Benchmark")
     print("=" * 60)
 
-    bgl_variants = {
-        'BGL vecS/vecS':  './build/bgl_louvain_vecS_vecS',
-        'BGL listS/vecS': './build/bgl_louvain_listS_vecS',
-        'BGL setS/vecS':  './build/bgl_louvain_setS_vecS',
-        'BGL adj_matrix': './build/bgl_louvain_matrix',
-    }
+    if sizes is None:
+        sizes = [100, 500, 1000]
+    graph_types = ['LFR', 'ScaleFree']
 
-    available = {n: e for n, e in bgl_variants.items() if os.path.exists(e)}
+    available_inc = {n: e for n, e in ALL_BGL_VARIANTS.items()
+                     if os.path.exists(e)}
+    available_noinc = {n: e for n, e in ALL_BGL_VARIANTS_NOINC.items()
+                       if os.path.exists(e)}
 
-    test_graphs = {
-        'Karate Club': nx.karate_club_graph(),
-        'Les Miserables': nx.les_miserables_graph(),
-        'Petersen': nx.petersen_graph(),
-        'Caveman(10,10)': nx.caveman_graph(10, 10),
-    }
+    results = []
 
-    all_data = []
+    for graph_type in graph_types:
+        print(f"\n{graph_type}:")
+        for n in sizes:
+            print(f"  n={n:,}...", flush=True)
 
-    for graph_name, G in test_graphs.items():
-        G = nx.Graph(G)  # ensure simple graph
-        if not all(isinstance(n, int) for n in G.nodes()):
-            mapping = {node: i for i, node in enumerate(G.nodes())}
-            G = nx.relabel_nodes(G, mapping)
+            if graph_type == 'LFR':
+                try:
+                    G = nx.generators.community.LFR_benchmark_graph(
+                        n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
+                        max_degree=min(50, n // 10),
+                        min_community=max(10, n // 100),
+                        max_community=min(n // 10, n // 2), seed=42)
+                except Exception:
+                    G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
+            else:
+                G = nx.barabasi_albert_graph(n, 3, seed=42)
 
-        n = G.number_of_nodes()
-        m = G.number_of_edges()
+            m = G.number_of_edges()
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            write_edgelist(G, f.name)
-            temp_file = f.name
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
+                                             delete=False) as f:
+                write_edgelist(G, f.name)
+                temp_file = f.name
 
-        print(f"\n  {graph_name} (n={n}, m={m})")
+            # ── Incremental variants ──
+            for bgl_name, exe in available_inc.items():
+                variant = bgl_name  # e.g. "BGL vecS/vecS"
+                if 'adj_matrix' in bgl_name and n > MATRIX_MAX_NODES:
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Variant': variant, 'Mode': 'incremental',
+                        'Time': float('nan'), 'Time_Std': float('nan'),
+                        'Modularity': float('nan'), 'Modularity_Std': float('nan'),
+                        'Communities': float('nan'), 'Communities_Std': float('nan'),
+                    })
+                    continue
 
-        for trial in range(n_trials):
-            seed = trial
+                times, mods, comms = [], [], []
+                for _ in range(n_trials):
+                    t, Q, partition = run_bgl_exe(exe, temp_file, timeout=300)
+                    if t is not None:
+                        times.append(t)
+                    if Q is not None:
+                        mods.append(Q)
+                    if partition is not None:
+                        comms.append(len(set(partition)))
 
-            # igraph
-            edges = list(G.edges())
-            g_ig = ig.Graph(n=n, edges=edges)
-            np.random.seed(seed)
-            part_ig = g_ig.community_multilevel()
-            all_data.append({'Graph': graph_name, 'Variant': 'igraph',
-                             'Modularity': part_ig.modularity, 'Communities': len(part_ig)})
+                results.append({
+                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                    'Variant': variant, 'Mode': 'incremental',
+                    'Time': np.mean(times) if times else float('nan'),
+                    'Time_Std': np.std(times) if times else float('nan'),
+                    'Modularity': np.mean(mods) if mods else float('nan'),
+                    'Modularity_Std': np.std(mods) if mods else float('nan'),
+                    'Communities': np.mean(comms) if comms else float('nan'),
+                    'Communities_Std': np.std(comms) if comms else float('nan'),
+                })
+                if times:
+                    print(f"    {variant:30s} inc  {np.mean(times):.6f}s  "
+                          f"Q={np.mean(mods):.4f}")
 
-            # BGL variants
-            for name, exe in available.items():
-                _, Q, partition = run_bgl_exe(exe, temp_file, seed)
-                if Q is not None:
-                    all_data.append({'Graph': graph_name, 'Variant': name,
-                                     'Modularity': Q, 'Communities': len(set(partition))})
+            # ── Non-incremental variants ──
+            for bgl_name_ni, exe_ni in available_noinc.items():
+                variant = NOINC_TO_INC[bgl_name_ni]  # map back to base name
+                if 'adj_matrix' in bgl_name_ni and n > MATRIX_MAX_NODES:
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Variant': variant, 'Mode': 'non-incremental',
+                        'Time': float('nan'), 'Time_Std': float('nan'),
+                        'Modularity': float('nan'), 'Modularity_Std': float('nan'),
+                        'Communities': float('nan'), 'Communities_Std': float('nan'),
+                    })
+                    continue
 
-        os.unlink(temp_file)
+                # Non-incremental is very slow — use generous timeout
+                times, mods, comms = [], [], []
+                for _ in range(n_trials):
+                    t, Q, partition = run_bgl_exe(exe_ni, temp_file, timeout=600)
+                    if t is not None:
+                        times.append(t)
+                    if Q is not None:
+                        mods.append(Q)
+                    if partition is not None:
+                        comms.append(len(set(partition)))
 
-        # Print summary for this graph
-        df_g = pd.DataFrame([d for d in all_data if d['Graph'] == graph_name])
-        for variant in df_g['Variant'].unique():
-            df_v = df_g[df_g['Variant'] == variant]
-            print(f"    {variant:20s}: Q={df_v['Modularity'].mean():.4f} (±{df_v['Modularity'].std():.4f}), "
-                  f"communities={df_v['Communities'].mean():.1f}")
+                results.append({
+                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                    'Variant': variant, 'Mode': 'non-incremental',
+                    'Time': np.mean(times) if times else float('nan'),
+                    'Time_Std': np.std(times) if times else float('nan'),
+                    'Modularity': np.mean(mods) if mods else float('nan'),
+                    'Modularity_Std': np.std(mods) if mods else float('nan'),
+                    'Communities': np.mean(comms) if comms else float('nan'),
+                    'Communities_Std': np.std(comms) if comms else float('nan'),
+                })
+                if times:
+                    print(f"    {variant:30s} noinc {np.mean(times):.6f}s  "
+                          f"Q={np.mean(mods):.4f}")
+                else:
+                    print(f"    {variant:30s} noinc TIMEOUT/FAIL")
 
-    df = pd.DataFrame(all_data)
-    df.to_csv('results/bgl_variants_correctness.csv', index=False)
-    print(f"\nSaved to results/bgl_variants_correctness.csv ({len(df)} data points)")
+            os.unlink(temp_file)
+
+    df = pd.DataFrame(results)
+    df.to_csv('results/incremental.csv', index=False)
+    print(f"\nSaved to results/incremental.csv")
     return df
 
 
+# ── main ─────────────────────────────────────────────────────────────────
+
 if __name__ == '__main__':
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
+    parser = argparse.ArgumentParser(description='Louvain benchmark suite')
+    parser.add_argument('--quick', action='store_true',
+                        help='Run a fast smoke-test (fewer graphs, trials, sizes)')
+    args = parser.parse_args()
 
     os.makedirs('results', exist_ok=True)
 
-    # Existing benchmarks (unchanged)
-    run_benchmark_correctness()
-    run_benchmark_runtime()
-
-    # New: BGL variants
-    df_vc = run_benchmark_bgl_variants_correctness()
-    df_vr = run_benchmark_bgl_variants()
-
-    # === Plot BGL variants runtime ===
-    if df_vr is not None and len(df_vr) > 0:
-        variant_styles = {
-            'igraph':          {'color': '#2ca02c', 'marker': 's', 'ls': '--', 'lw': 2},
-            'BGL vecS/vecS':   {'color': '#1f77b4', 'marker': 'o', 'ls': '-',  'lw': 1.5},
-            'BGL listS/vecS':  {'color': '#ff7f0e', 'marker': '^', 'ls': '-',  'lw': 1.5},
-            'BGL setS/vecS':   {'color': '#9467bd', 'marker': 'D', 'ls': '-',  'lw': 1.5},
-            'BGL adj_matrix':  {'color': '#e377c2', 'marker': 'X', 'ls': '-',  'lw': 1.5},
-        }
-
-        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-        for idx, graph_type in enumerate(['LFR', 'ScaleFree']):
-            ax = axes[idx]
-            df_gt = df_vr[df_vr['GraphType'] == graph_type]
-
-            for variant in df_gt['Variant'].unique():
-                df_v = df_gt[df_gt['Variant'] == variant].dropna(subset=['Time']).sort_values('Nodes')
-                if df_v.empty:
-                    continue
-                style = variant_styles.get(variant, {'color': '#333', 'marker': 'o', 'ls': '-', 'lw': 1})
-                ax.plot(df_v['Nodes'], df_v['Time'],
-                        marker=style['marker'], color=style['color'],
-                        linestyle=style['ls'], linewidth=style['lw'],
-                        label=variant, markersize=7)
-
-            ax.set_xlabel('Number of Nodes')
-            ax.set_ylabel('Time (seconds)')
-            ax.set_title(f'BGL Data Structure Variants — {graph_type}')
-            ax.legend(fontsize=8, loc='upper left')
-            ax.set_xscale('log')
-            ax.set_yscale('log')
-            ax.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-        plt.savefig('results/bgl_variants_runtime.png', dpi=150, bbox_inches='tight')
-        print("\nPlot saved to results/bgl_variants_runtime.png")
-
-    # === Plot BGL variants correctness ===
-    if df_vc is not None and len(df_vc) > 0:
-        fig2, (ax2, ax3) = plt.subplots(1, 2, figsize=(16, 6))
-        graphs = df_vc['Graph'].unique()
-        variants = df_vc['Variant'].unique()
-        x = np.arange(len(graphs))
-        width = 0.8 / len(variants)
-
-        colors = {
-            'igraph':          '#2ca02c',
-            'BGL vecS/vecS':   '#1f77b4',
-            'BGL listS/vecS':  '#ff7f0e',
-            'BGL setS/vecS':   '#9467bd',
-            'BGL adj_matrix':  '#e377c2',
-        }
-
-        for i, variant in enumerate(variants):
-            df_v = df_vc[df_vc['Variant'] == variant]
-            # Modularity
-            means_q = [df_v[df_v['Graph'] == g]['Modularity'].mean() if len(df_v[df_v['Graph'] == g]) > 0 else 0 for g in graphs]
-            stds_q  = [df_v[df_v['Graph'] == g]['Modularity'].std()  if len(df_v[df_v['Graph'] == g]) > 0 else 0 for g in graphs]
-            ax2.bar(x + i * width, means_q, width, yerr=stds_q,
-                    label=variant, color=colors.get(variant, '#333'), alpha=0.85,
-                    capsize=3)
-            # Communities
-            means_c = [df_v[df_v['Graph'] == g]['Communities'].mean() if len(df_v[df_v['Graph'] == g]) > 0 else 0 for g in graphs]
-            stds_c  = [df_v[df_v['Graph'] == g]['Communities'].std()  if len(df_v[df_v['Graph'] == g]) > 0 else 0 for g in graphs]
-            ax3.bar(x + i * width, means_c, width, yerr=stds_c,
-                    label=variant, color=colors.get(variant, '#333'), alpha=0.85,
-                    capsize=3)
-
-        ax2.set_xlabel('Graph')
-        ax2.set_ylabel('Modularity (Q)')
-        ax2.set_title('BGL Variants — Modularity')
-        ax2.set_xticks(x + width * len(variants) / 2)
-        ax2.set_xticklabels(graphs, rotation=15, ha='right')
-        ax2.legend(fontsize=8)
-        ax2.grid(True, alpha=0.3, axis='y')
-
-        ax3.set_xlabel('Graph')
-        ax3.set_ylabel('Number of Communities')
-        ax3.set_title('BGL Variants — Communities Found')
-        ax3.set_xticks(x + width * len(variants) / 2)
-        ax3.set_xticklabels(graphs, rotation=15, ha='right')
-        ax3.legend(fontsize=8)
-        ax3.grid(True, alpha=0.3, axis='y')
-
-        plt.tight_layout()
-        plt.savefig('results/bgl_variants_correctness.png', dpi=150, bbox_inches='tight')
-        print("Plot saved to results/bgl_variants_correctness.png")
+    if args.quick:
+        print('*** QUICK MODE — reduced trials & sizes ***\n')
+        run_benchmark_correctness(n_trials=5)
+        run_benchmark_runtime(n_trials=3,
+                              sizes=[1000, 5000, 25000])
+        run_benchmark_incremental(n_trials=3,
+                                  sizes=[100, 500])
+    else:
+        run_benchmark_correctness()
+        run_benchmark_runtime()
+        run_benchmark_incremental()

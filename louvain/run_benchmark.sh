@@ -1,10 +1,23 @@
 #!/bin/bash
 # Louvain Benchmark - Self-contained runner
 # Creates a venv, installs deps, optionally builds BGL, runs benchmarks.
+#
+# Usage:
+#   ./run_benchmark.sh          # full benchmark (default)
+#   ./run_benchmark.sh --quick  # fast smoke-test (fewer trials & sizes)
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Collect flags to forward to benchmark.py
+BENCH_FLAGS=""
+for arg in "$@"; do
+    case "$arg" in
+        --quick) BENCH_FLAGS="$BENCH_FLAGS --quick" ;;
+        *) echo "Unknown option: $arg"; exit 1 ;;
+    esac
+done
 
 echo "=== Louvain Benchmark Suite ==="
 echo "Working directory: $SCRIPT_DIR"
@@ -34,7 +47,7 @@ fi
 # --- Run benchmarks ---
 echo ""
 echo "Running benchmark suite..."
-./venv/bin/python3 scripts/benchmark.py
+./venv/bin/python3 scripts/benchmark.py $BENCH_FLAGS
 
 echo ""
 echo "Generating visualizations..."

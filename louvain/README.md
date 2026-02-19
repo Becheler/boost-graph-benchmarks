@@ -1,126 +1,66 @@
-# BGL Louvain Benchmark Suite
+# BGL Louvain Benchmark
 
-Self-contained benchmark comparing BGL's `louvain_clustering` against NetworkX,
-igraph, and gen-louvain on a set of standard community-detection graphs.
+Compares BGL's `louvain_clustering` against NetworkX, igraph, and
+gen-louvain across four BGL graph-type variants.
 
-## Quick Start
+## Usage
 
 ```bash
-cd louvain
-./run_benchmark.sh
+./run_benchmark.sh          # full suite (~2-3 h)
+./run_benchmark.sh --quick  # smoke-test (~1 min)
 ```
 
-This will:
-1. Create a Python virtual environment and install dependencies
-2. Build all BGL graph-type variants via CMake
-3. Run correctness + runtime benchmarks
-4. Generate visualisation plots in `results/`
+**Requires:** Python 3.8+, CMake 3.15+, C++17 compiler, Boost headers.
+The script handles venv creation, dependency install, and C++ compilation.
 
-**Total runtime: ~30 seconds**
-
-## Directory Layout
-
-```
-louvain/
-  run_benchmark.sh        # One-command entry point
-  requirements.txt        # Python deps (igraph; common deps in ../requirements-common.txt)
-  src/                    # C++ sources + CMake
-    CMakeLists.txt
-    bgl_louvain_benchmark.hpp   # Shared template header
-    bgl_louvain_vecS_vecS.cpp   # vecS/vecS
-    bgl_louvain_listS_vecS.cpp  # listS/vecS
-    bgl_louvain_setS_vecS.cpp   # setS/vecS
-    bgl_louvain_matrix.cpp      # adjacency_matrix
-  scripts/                # Python scripts
-    benchmark.py          # Main benchmark runner
-    visualize.py          # Plot generator
-  vendor/                 # Third-party implementations
-    gen-louvain/          # Auto-built from SourceForge with timing patch
-      build.sh            # Downloads and patches source (CMake compiles)
-      timing.patch        # Adds std::chrono LOUVAIN_TIME instrumentation
-  build/                  # CMake build output  (gitignored)
-  results/                # CSV output (gitignored), PNG plots (committed)
-  venv/                   # Python virtualenv    (gitignored)
-```
-
-## Requirements
-
-**Handled automatically by `run_benchmark.sh`:**
-- Python 3.8+ (creates venv)
-- NetworkX, igraph, pandas, matplotlib, seaborn, numpy
-
-**For C++ compilation:**
-- CMake 3.15+
-- C++14 compiler
-- Boost headers (system install)
-- Boost.Graph fork with `louvain_clustering.hpp`
-  (default path: `../../forks/graph/include`, override with
-  `cmake ../src -DBGL_GRAPH_INCLUDE=/your/path`)
-
-## Manual Steps
-
-### Build C++ binaries only
+Override the BGL include path:
 ```bash
-cd louvain
-mkdir -p build && cd build
-cmake ../src -DCMAKE_BUILD_TYPE=Release
-cmake --build . -j$(nproc)
+cd build && cmake ../src -DBGL_GRAPH_INCLUDE=/path/to/graph/include
 ```
-
-### Run benchmark without the wrapper script
-```bash
-cd louvain
-./venv/bin/python3 scripts/benchmark.py
-./venv/bin/python3 scripts/visualize.py
-```
-
-## BGL Graph-Type Variants
-
-The benchmark builds five executables from thin `.cpp` wrappers that
-instantiate the shared `bgl_louvain_benchmark.hpp` template:
-
-| Binary | OutEdgeList | VertexList |
-|--------|------------|------------|
-| `bgl_louvain_vecS_vecS` | vecS | vecS |
-| `bgl_louvain_listS_vecS` | listS | vecS |
-| `bgl_louvain_setS_vecS` | setS | vecS |
-| `bgl_louvain_matrix` | adjacency_matrix | — |
 
 ## Results
 
-### Runtime comparison
+### Correctness
 
-![Runtime benchmark](results/benchmark_comparison.png)
+Distribution of modularity scores across repeated trials on several small graphs, showing whether each implementation converges to similar partition quality.
+![Modularity](results/correctness_modularity.png)
 
-### BGL graph-type variants
+Distribution of community counts across repeated trials, revealing how consistently each implementation splits the graph.
+![Communities](results/correctness_communities.png)
 
-![BGL variants correctness](results/bgl_variants_correctness.png)
+Per-implementation deviation from the cross-implementation mean modularity, highlighting which implementations tend to find better or worse partitions.
+![Relative modularity](results/relative_modularity.png)
 
-![BGL variants runtime](results/bgl_variants_runtime.png)
+Same relative comparison but for the number of communities detected.
+![Relative communities](results/relative_communities.png)
 
-![BGL variant speedup over igraph](results/speedup.png)
+Direct percentage difference between each BGL variant's modularity and each reference implementation (NetworkX, igraph, genlouvain), to verify BGL produces competitive partition quality.
+![BGL vs references](results/bgl_vs_refs.png)
 
+### Runtime
 
-## Benchmark Graphs
+Wall-clock time vs graph size on LFR benchmark graphs (log-log), measuring how each implementation's runtime scales with realistic community structure.
+![Runtime LFR](results/runtime_lfr.png)
 
-| Graph | Nodes | Type |
-|-------|-------|------|
-| Karate Club | 34 | Generated (NetworkX) |
-| Les Misérables | 77 | Generated (NetworkX) |
-| Watts-Strogatz | 100 | Generated (NetworkX) |
-| Barabási-Albert | 100 | Generated (NetworkX) |
-| Caveman | 50 | Generated (NetworkX) |
-| Planted Partition | 100 | Generated (NetworkX) |
+Same scalability measurement on scale-free (Barabási–Albert) graphs, which have a different degree distribution.
+![Runtime ScaleFree](results/runtime_scalefree.png)
 
-## Troubleshooting
+Number of communities detected vs graph size on LFR graphs, checking that implementations agree on partition granularity as graphs grow.
+![Communities LFR](results/communities_lfr.png)
 
-**"gen-louvain binaries not found"** -- `run_benchmark.sh` auto-downloads,
-patches (adds `std::chrono` timing), and builds gen-louvain from source.
-If the download fails (e.g. no internet), gen-louvain is skipped.
-To rebuild: delete `louvain/build/genlouvain_*` and re-run `run_benchmark.sh`.
+Same community count comparison on scale-free graphs.
+![Communities ScaleFree](results/communities_scalefree.png)
 
-**"CMake build failed"** — Ensure Boost headers are installed and
-`BGL_GRAPH_INCLUDE` points to the fork's `include/` directory.
+Speedup of each implementation relative to igraph, showing which are faster (>1) or slower (<1) across graph sizes.
+![Speedup over igraph](results/speedup.png)
 
-**"ModuleNotFoundError"** — Run `./run_benchmark.sh` to auto-create the
-venv, or manually: `./venv/bin/pip install -r requirements.txt`.
+### Incremental vs Non-Incremental Quality Function
+
+Speedup gained by the incremental quality function (O(degree) per candidate move) over the non-incremental path (full O(E) modularity recomputation), for each BGL graph-type variant.
+![Speedup](results/inc_speedup.png)
+
+Absolute runtime comparison between incremental and non-incremental modes, showing the wall-clock cost difference on small graphs.
+![Runtime](results/inc_runtime.png)
+
+Modularity achieved by both modes, verifying that the incremental optimisation does not change the final partition quality.
+![Correctness](results/inc_correctness.png)

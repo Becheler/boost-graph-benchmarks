@@ -24,6 +24,19 @@
 
 namespace bgl_benchmark {
 
+// ── Non-incremental quality function wrapper ────────────────────────────
+// Delegates to newman_and_girvan::quality() but intentionally omits
+// gain/remove/insert so the SFINAE trait resolves to std::false_type,
+// forcing the non-incremental (full-recomputation) code path.
+
+struct newman_and_girvan_non_incremental {
+    template <typename Graph, typename CommunityMap, typename WeightMap>
+    static inline typename boost::property_traits<WeightMap>::value_type
+    quality(const Graph& g, const CommunityMap& communities, const WeightMap& weights) {
+        return boost::newman_and_girvan::quality(g, communities, weights);
+    }
+};
+
 // Helpers
 
 /// Parse command-line arguments common to all variants.
@@ -70,7 +83,8 @@ inline void emit_timing(double load_time, double louvain_time) {
 
 // adjacency_list benchmark (template on OutEdgeList x VertexList selectors)
 
-template <typename OutEdgeList, typename VertexList>
+template <typename OutEdgeList, typename VertexList,
+          typename QualityFunction = boost::newman_and_girvan>
 int run_adjacency_list(int argc, char* argv[]) {
 
     std::string filename;
@@ -133,7 +147,7 @@ int run_adjacency_list(int argc, char* argv[]) {
         boost::vector_property_map<Vertex> communities;
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        double Q = boost::louvain_clustering(g, communities, boost::get(boost::edge_weight, g), gen);
+        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen);
         auto t1 = std::chrono::high_resolution_clock::now();
 
         emit_timing(load_time, std::chrono::duration<double>(t1 - t0).count());
@@ -149,7 +163,7 @@ int run_adjacency_list(int argc, char* argv[]) {
         boost::associative_property_map<std::map<Vertex, Vertex>> communities(comm_store);
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        double Q = boost::louvain_clustering(g, communities, boost::get(boost::edge_weight, g), gen);
+        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen);
         auto t1 = std::chrono::high_resolution_clock::now();
 
         emit_timing(load_time, std::chrono::duration<double>(t1 - t0).count());
@@ -180,7 +194,8 @@ int run_adjacency_list(int argc, char* argv[]) {
 
 // adjacency_matrix benchmark
 
-inline int run_adjacency_matrix(int argc, char* argv[]) {
+template <typename QualityFunction = boost::newman_and_girvan>
+int run_adjacency_matrix(int argc, char* argv[]) {
 
     std::string filename;
     unsigned int seed;
@@ -214,7 +229,7 @@ inline int run_adjacency_matrix(int argc, char* argv[]) {
     std::minstd_rand gen(seed);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    double Q = boost::louvain_clustering(g, communities, boost::get(boost::edge_weight, g), gen);
+    double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen);
     auto t1 = std::chrono::high_resolution_clock::now();
 
     emit_timing(load_time, std::chrono::duration<double>(t1 - t0).count());
