@@ -17,7 +17,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 240
 
     steps:
     # ── checkout ──────────────────────────────────────────────────────────
@@ -68,12 +68,12 @@ jobs:
           -Wno-dev
         cmake --build . -j$(nproc)
 
-    # ── run benchmarks (quick mode for CI) ───────────────────────────────
-    - name: Run benchmark suite (quick mode)
+    # ── run benchmarks ───────────────────────────────────────────────────
+    - name: Run benchmark suite
       working-directory: louvain
       run: |
         mkdir -p results
-        python scripts/benchmark.py --quick
+        python scripts/benchmark.py
 
     # ── generate visualizations ──────────────────────────────────────────
     - name: Generate visualizations
