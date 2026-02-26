@@ -1,5 +1,7 @@
 # boost-graph-benchmarks
 
+[![Louvain Benchmark](https://github.com/Becheler/boost-graph-benchmarks/actions/workflows/benchmark.yml/badge.svg)](https://github.com/Becheler/boost-graph-benchmarks/actions/workflows/benchmark.yml)
+
 Benchmarks for Boost Graph Library algorithms against reference implementations.
 
 ## Quick Start

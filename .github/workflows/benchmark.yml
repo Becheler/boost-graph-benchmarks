@@ -1,0 +1,90 @@
+name: Louvain Benchmark
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:        # allow manual runs
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+    # ── checkout ──────────────────────────────────────────────────────────
+    - name: Checkout benchmark repository
+      uses: actions/checkout@v4
+
+    # ── clone Boost.Graph fork with louvain headers ──────────────────────
+    - name: Clone Boost.Graph fork (feature/louvain-algorithm)
+      run: |
+        git clone --depth 1 --branch feature/louvain-algorithm \
+          https://github.com/Becheler/graph.git \
+          ${{ github.workspace }}/bgl-fork
+
+    # ── system dependencies ──────────────────────────────────────────────
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          cmake build-essential libboost-all-dev curl
+
+    # ── Python setup ─────────────────────────────────────────────────────
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      working-directory: louvain
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r ../requirements-common.txt -r requirements.txt
+
+    # ── prepare gen-louvain source ───────────────────────────────────────
+    - name: Prepare gen-louvain source
+      working-directory: louvain/vendor/gen-louvain
+      run: bash build.sh
+      continue-on-error: true       # benchmark handles missing gen-louvain gracefully
+
+    # ── build C++ binaries ───────────────────────────────────────────────
+    - name: Build all C++ binaries
+      working-directory: louvain
+      run: |
+        mkdir -p build
+        cd build
+        cmake ../src \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBGL_GRAPH_INCLUDE=${{ github.workspace }}/bgl-fork/include \
+          -Wno-dev
+        cmake --build . -j$(nproc)
+
+    # ── run benchmarks (quick mode for CI) ───────────────────────────────
+    - name: Run benchmark suite (quick mode)
+      working-directory: louvain
+      run: |
+        mkdir -p results
+        python scripts/benchmark.py --quick
+
+    # ── generate visualizations ──────────────────────────────────────────
+    - name: Generate visualizations
+      working-directory: louvain
+      run: python scripts/visualize.py
+      continue-on-error: true       # plots are optional; data is the deliverable
+
+    # ── upload results ───────────────────────────────────────────────────
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: benchmark-results
+        path: |
+          louvain/results/*.csv
+          louvain/results/*.png
+        retention-days: 30

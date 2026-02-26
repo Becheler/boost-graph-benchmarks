@@ -27,8 +27,14 @@ echo "  Extracting..."
 rm -rf gen-louvain
 tar xzf "$ARCHIVE"
 
-# --- Fix Windows line endings ---
-find gen-louvain -name '*.cpp' -o -name '*.h' | xargs sed -i '' 's/\r$//'
+# --- Fix Windows line endings (cross-platform sed -i) ---
+if sed --version >/dev/null 2>&1; then
+    # GNU sed (Linux)
+    find gen-louvain -name '*.cpp' -o -name '*.h' | xargs sed -i 's/\r$//'
+else
+    # BSD sed (macOS)
+    find gen-louvain -name '*.cpp' -o -name '*.h' | xargs sed -i '' 's/\r$//'
+fi
 
 # --- Patch: add std::chrono timing instrumentation ---
 echo "  Applying timing patch..."
