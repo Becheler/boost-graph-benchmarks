@@ -752,25 +752,34 @@ def run_benchmark_epsilon(n_trials=10, sizes=None):
 
 # ── main ─────────────────────────────────────────────────────────────────
 
+BENCHMARKS = {
+    'correctness':  lambda q: run_benchmark_correctness(n_trials=5 if q else 100),
+    'runtime':      lambda q: run_benchmark_runtime(
+                        n_trials=3 if q else 10,
+                        sizes=[1000, 5000, 25000] if q else None),
+    'incremental':  lambda q: run_benchmark_incremental(
+                        n_trials=3 if q else 10,
+                        sizes=[100, 500] if q else None),
+    'epsilon':      lambda q: run_benchmark_epsilon(
+                        n_trials=3 if q else 10,
+                        sizes=[1000, 5000, 10000] if q else None),
+}
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Louvain benchmark suite')
     parser.add_argument('--quick', action='store_true',
                         help='Run a fast smoke-test (fewer graphs, trials, sizes)')
+    parser.add_argument('--only', choices=list(BENCHMARKS.keys()),
+                        help='Run only the specified benchmark')
     args = parser.parse_args()
 
     os.makedirs('results', exist_ok=True)
 
     if args.quick:
         print('*** QUICK MODE — reduced trials & sizes ***\n')
-        run_benchmark_correctness(n_trials=5)
-        run_benchmark_runtime(n_trials=3,
-                              sizes=[1000, 5000, 25000])
-        run_benchmark_incremental(n_trials=3,
-                                  sizes=[100, 500])
-        run_benchmark_epsilon(n_trials=3,
-                              sizes=[1000, 5000, 10000])
+
+    if args.only:
+        BENCHMARKS[args.only](args.quick)
     else:
-        run_benchmark_correctness()
-        run_benchmark_runtime()
-        run_benchmark_incremental()
-        run_benchmark_epsilon()
+        for name, fn in BENCHMARKS.items():
+            fn(args.quick)

@@ -5,7 +5,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:        # allow manual runs
+  workflow_dispatch:
 
 concurrency:
   group: benchmark-${{ github.ref }}
@@ -14,49 +14,42 @@ concurrency:
 permissions:
   contents: write
 
+# ─────────────────────────────────────────────────────────────────────────
+# Job graph:
+#   build  ──►  correctness ─┐
+#           ├►  runtime      ─┤
+#           ├►  incremental  ─┼──►  visualize (merge + plot + commit)
+#           └►  epsilon      ─┘
+# ─────────────────────────────────────────────────────────────────────────
+
 jobs:
-  benchmark:
+
+  # ══════════════════════════════════════════════════════════════════════
+  # 1. Build all C++ binaries and upload as artifact
+  # ══════════════════════════════════════════════════════════════════════
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
-
+    timeout-minutes: 20
     steps:
-    # ── checkout ──────────────────────────────────────────────────────────
-    - name: Checkout benchmark repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    # ── clone Boost.Graph fork with louvain headers ──────────────────────
-    - name: Clone Boost.Graph fork (feature/louvain-algorithm)
+    - name: Clone Boost.Graph fork
       run: |
         git clone --depth 1 --branch feature/louvain-algorithm \
           https://github.com/Becheler/graph.git \
           ${{ github.workspace }}/bgl-fork
 
-    # ── system dependencies ──────────────────────────────────────────────
     - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           cmake build-essential libboost-all-dev curl
 
-    # ── Python setup ─────────────────────────────────────────────────────
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install Python dependencies
-      working-directory: louvain
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r ../requirements-common.txt -r requirements.txt
-
-    # ── prepare gen-louvain source ───────────────────────────────────────
     - name: Prepare gen-louvain source
       working-directory: louvain/vendor/gen-louvain
       run: bash build.sh
-      continue-on-error: true       # benchmark handles missing gen-louvain gracefully
+      continue-on-error: true
 
-    # ── build C++ binaries ───────────────────────────────────────────────
     - name: Build all C++ binaries
       working-directory: louvain
       run: |
@@ -68,28 +61,147 @@ jobs:
           -Wno-dev
         cmake --build . -j$(nproc)
 
-    # ── run benchmarks ───────────────────────────────────────────────────
-    - name: Run benchmark suite
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: louvain-build
+        path: louvain/build/
+        retention-days: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # 2. Run each benchmark in parallel
+  # ══════════════════════════════════════════════════════════════════════
+  benchmark:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [correctness, runtime, incremental, epsilon]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      working-directory: louvain
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r ../requirements-common.txt -r requirements.txt
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: louvain-build
+        path: louvain/build/
+
+    - name: Make binaries executable
+      run: chmod +x louvain/build/*
+
+    - name: Run ${{ matrix.suite }} benchmark
       working-directory: louvain
       run: |
         mkdir -p results
-        python scripts/benchmark.py
+        python scripts/benchmark.py --only ${{ matrix.suite }}
 
-    # ── generate visualizations ──────────────────────────────────────────
+    - name: Upload ${{ matrix.suite }} results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: results-${{ matrix.suite }}
+        path: louvain/results/*.csv
+        retention-days: 30
+
+  # ══════════════════════════════════════════════════════════════════════
+  # 3. Merge results, generate plots, and commit
+  # ══════════════════════════════════════════════════════════════════════
+  visualize:
+    needs: benchmark
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      working-directory: louvain
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r ../requirements-common.txt -r requirements.txt
+
+    # Download all benchmark CSVs into results/
+    - name: Download correctness results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-correctness
+        path: louvain/results/
+      continue-on-error: true
+
+    - name: Download runtime results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-runtime
+        path: louvain/results/
+      continue-on-error: true
+
+    - name: Download incremental results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-incremental
+        path: louvain/results/
+      continue-on-error: true
+
+    - name: Download epsilon results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-epsilon
+        path: louvain/results/
+      continue-on-error: true
+
     - name: Generate visualizations
       working-directory: louvain
       run: python scripts/visualize.py
-      continue-on-error: true       # plots are optional; data is the deliverable
+      continue-on-error: true
 
-    # ── compare passes (cumulative_dQ plot) ──────────────────────────────
+    # compare_passes needs C++ binaries + fork headers to patch & rebuild
+    - name: Clone Boost.Graph fork
+      run: |
+        git clone --depth 1 --branch feature/louvain-algorithm \
+          https://github.com/Becheler/graph.git \
+          ${{ github.workspace }}/bgl-fork
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          cmake build-essential libboost-all-dev
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: louvain-build
+        path: louvain/build/
+
+    - name: Make binaries executable
+      run: chmod +x louvain/build/*
+
     - name: Generate cumulative dQ comparison
       working-directory: louvain
       env:
         BGL_GRAPH_INCLUDE: ${{ github.workspace }}/bgl-fork/include
       run: python scripts/compare_passes.py --nodes 10000 --seed 42
-      continue-on-error: true       # requires patching sources; non-critical
+      continue-on-error: true
 
-    # ── commit results back to the repo ─────────────────────────────────
+    # Commit everything back
     - name: Commit updated results
       if: github.event_name == 'push'
       run: |
@@ -100,8 +212,7 @@ jobs:
           git commit -m "ci: update benchmark results [skip ci]" && \
           git push
 
-    # ── upload results as artifact (always, including PRs) ───────────
-    - name: Upload benchmark results
+    - name: Upload final results
       uses: actions/upload-artifact@v4
       if: always()
       with:
