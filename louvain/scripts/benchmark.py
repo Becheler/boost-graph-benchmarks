@@ -147,11 +147,14 @@ def run_genlouvain(edgelist_file, seed=42):
         return None, None, None
 
 
-def run_bgl_exe(exe, temp_file, seed='42', timeout=900):
+def run_bgl_exe(exe, temp_file, seed='42', timeout=900, extra_args=None):
     """Run a BGL executable and parse LOUVAIN_TIME, modularity, and partition."""
     try:
+        cmd = [exe, temp_file, str(seed)]
+        if extra_args:
+            cmd.extend(extra_args)
         result = subprocess.run(
-            [exe, temp_file, str(seed)],
+            cmd,
             capture_output=True, text=True, timeout=timeout,
         )
         if result.returncode != 0:
@@ -601,6 +604,152 @@ def run_benchmark_incremental(n_trials=10, sizes=None):
     return df
 
 
+# ── epsilon threshold comparison ─────────────────────────────────────────
+
+def run_benchmark_epsilon(n_trials=10, sizes=None):
+    """Compare BGL runtime with eps=0 (default) vs eps=1e-6 (genlouvain match).
+
+    Runs BGL vecS/vecS with both epsilon values, plus igraph and genlouvain,
+    then outputs speedup-over-igraph for each configuration.
+
+    This quantifies how much of the BGL-vs-genlouvain gap is due to
+    convergence threshold policy vs data-structure overhead.
+
+    Output: results/epsilon.csv
+        Columns: GraphType, Nodes, Edges, Implementation,
+                 Time, Time_Std, Communities, Communities_Std
+    """
+    print("\nEpsilon Threshold Benchmark")
+    print("=" * 60)
+
+    if sizes is None:
+        sizes = [1000, 5000, 10000, 50000]
+    graph_types = ['LFR', 'ScaleFree']
+
+    bgl_exe = './build/bgl_louvain_vecS_vecS'
+    if not os.path.exists(bgl_exe):
+        print("  BGL vecS/vecS binary not found, skipping.")
+        return None
+    has_gen = genlouvain_available()
+
+    results = []
+
+    for graph_type in graph_types:
+        print(f"\n{graph_type}:")
+        for n in sizes:
+            print(f"  n={n:,}...", end=' ', flush=True)
+
+            if graph_type == 'LFR':
+                try:
+                    G = nx.generators.community.LFR_benchmark_graph(
+                        n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
+                        max_degree=min(50, n // 10),
+                        min_community=max(10, n // 100),
+                        max_community=min(n // 10, n // 2), seed=42)
+                except Exception:
+                    G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
+            else:
+                G = nx.barabasi_albert_graph(n, 3, seed=42)
+
+            m = G.number_of_edges()
+
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
+                                             delete=False) as f:
+                write_edgelist(G, f.name)
+                temp_file = f.name
+
+            # Build igraph graph once
+            edges = list(G.edges())
+            g_ig = ig.Graph(n=G.number_of_nodes(), edges=edges)
+
+            # Warm-up
+            g_ig.community_multilevel()
+            subprocess.run([bgl_exe, temp_file, '42'], capture_output=True,
+                           text=True, timeout=900)
+            if has_gen:
+                run_genlouvain(temp_file, 42)
+
+            summary_parts = []
+
+            # ── igraph ──
+            times, comms = [], []
+            for _ in range(n_trials):
+                start = time.time()
+                part = g_ig.community_multilevel()
+                times.append(time.time() - start)
+                comms.append(len(part))
+            results.append({
+                'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                'Implementation': 'igraph',
+                'Time': np.mean(times), 'Time_Std': np.std(times),
+                'Communities': np.mean(comms),
+                'Communities_Std': np.std(comms),
+            })
+            summary_parts.append(f"ig {np.mean(times):.4f}s")
+
+            # ── genlouvain (eps=1e-6 by design) ──
+            if has_gen:
+                times = []
+                for _ in range(n_trials):
+                    t_gen, _, _ = run_genlouvain(temp_file, 42)
+                    if t_gen is not None:
+                        times.append(t_gen)
+                if times:
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Implementation': 'genlouvain',
+                        'Time': np.mean(times), 'Time_Std': np.std(times),
+                        'Communities': float('nan'),
+                        'Communities_Std': float('nan'),
+                    })
+                    summary_parts.append(f"gen {np.mean(times):.4f}s")
+
+            # ── BGL eps=0 (default) ──
+            times, comms = [], []
+            for _ in range(n_trials):
+                t, _, partition = run_bgl_exe(bgl_exe, temp_file)
+                if t is not None:
+                    times.append(t)
+                if partition is not None:
+                    comms.append(len(set(partition)))
+            if times:
+                results.append({
+                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                    'Implementation': 'BGL vecS/vecS (eps=0)',
+                    'Time': np.mean(times), 'Time_Std': np.std(times),
+                    'Communities': np.mean(comms) if comms else float('nan'),
+                    'Communities_Std': np.std(comms) if comms else float('nan'),
+                })
+                summary_parts.append(f"eps0 {np.mean(times):.4f}s")
+
+            # ── BGL eps=1e-6 (matching genlouvain) ──
+            times, comms = [], []
+            for _ in range(n_trials):
+                t, _, partition = run_bgl_exe(bgl_exe, temp_file,
+                                              extra_args=['1e-6'])
+                if t is not None:
+                    times.append(t)
+                if partition is not None:
+                    comms.append(len(set(partition)))
+            if times:
+                results.append({
+                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                    'Implementation': 'BGL vecS/vecS (eps=1e-6)',
+                    'Time': np.mean(times), 'Time_Std': np.std(times),
+                    'Communities': np.mean(comms) if comms else float('nan'),
+                    'Communities_Std': np.std(comms) if comms else float('nan'),
+                })
+                summary_parts.append(f"eps1e-6 {np.mean(times):.4f}s")
+
+            os.unlink(temp_file)
+            print(', '.join(summary_parts))
+
+    df = pd.DataFrame(results)
+    df.to_csv('results/epsilon.csv', index=False)
+    print(f"\nSaved to results/epsilon.csv")
+    return df
+
+
 # ── main ─────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -618,7 +767,10 @@ if __name__ == '__main__':
                               sizes=[1000, 5000, 25000])
         run_benchmark_incremental(n_trials=3,
                                   sizes=[100, 500])
+        run_benchmark_epsilon(n_trials=3,
+                              sizes=[1000, 5000, 10000])
     else:
         run_benchmark_correctness()
         run_benchmark_runtime()
         run_benchmark_incremental()
+        run_benchmark_epsilon()

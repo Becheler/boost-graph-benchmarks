@@ -40,13 +40,14 @@ struct newman_and_girvan_non_incremental {
 // Helpers
 
 /// Parse command-line arguments common to all variants.
-inline bool parse_args(int argc, char* argv[], std::string& filename, unsigned int& seed) {
+inline bool parse_args(int argc, char* argv[], std::string& filename, unsigned int& seed, double& epsilon) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <graph_file> [seed]\n";
+        std::cerr << "Usage: " << argv[0] << " <graph_file> [seed] [epsilon]\n";
         return false;
     }
     filename = argv[1];
     seed = (argc > 2) ? static_cast<unsigned int>(std::atoi(argv[2])) : 42;
+    epsilon = (argc > 3) ? std::atof(argv[3]) : 0.0;
     return true;
 }
 
@@ -89,7 +90,8 @@ int run_adjacency_list(int argc, char* argv[]) {
 
     std::string filename;
     unsigned int seed;
-    if (!parse_args(argc, argv, filename, seed))
+    double epsilon;
+    if (!parse_args(argc, argv, filename, seed, epsilon))
         return 1;
 
     // Type machinery
@@ -147,7 +149,7 @@ int run_adjacency_list(int argc, char* argv[]) {
         boost::vector_property_map<Vertex> communities;
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen);
+        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen, epsilon, epsilon);
         auto t1 = std::chrono::high_resolution_clock::now();
 
         emit_timing(load_time, std::chrono::duration<double>(t1 - t0).count());
@@ -163,7 +165,7 @@ int run_adjacency_list(int argc, char* argv[]) {
         boost::associative_property_map<std::map<Vertex, Vertex>> communities(comm_store);
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen);
+        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen, epsilon, epsilon);
         auto t1 = std::chrono::high_resolution_clock::now();
 
         emit_timing(load_time, std::chrono::duration<double>(t1 - t0).count());
@@ -199,7 +201,8 @@ int run_adjacency_matrix(int argc, char* argv[]) {
 
     std::string filename;
     unsigned int seed;
-    if (!parse_args(argc, argv, filename, seed))
+    double epsilon;
+    if (!parse_args(argc, argv, filename, seed, epsilon))
         return 1;
 
     using EdgeProp = boost::property<boost::edge_weight_t, double>;
@@ -229,7 +232,7 @@ int run_adjacency_matrix(int argc, char* argv[]) {
     std::minstd_rand gen(seed);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen);
+    double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen, epsilon, epsilon);
     auto t1 = std::chrono::high_resolution_clock::now();
 
     emit_timing(load_time, std::chrono::duration<double>(t1 - t0).count());

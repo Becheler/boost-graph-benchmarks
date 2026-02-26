@@ -482,3 +482,90 @@ if os.path.exists('results/incremental.csv'):
     _inc_speedup(df_inc, 'results/inc_speedup.png')
     _inc_runtime(df_inc, 'results/inc_runtime.png')
     _inc_correctness(df_inc, 'results/inc_correctness.png')
+
+
+# ── epsilon threshold comparison plots ────────────────────────────────────
+
+EPS_COLORS = {
+    'igraph':                     '#ff7f0e',
+    'genlouvain':                 '#d62728',
+    'BGL vecS/vecS (eps=0)':      '#2ca02c',
+    'BGL vecS/vecS (eps=1e-6)':   '#17becf',
+}
+
+
+def _epsilon_speedup(df_eps, filename):
+    """Speedup over igraph for BGL(eps=0), BGL(eps=1e-6), and genlouvain."""
+    others = [i for i in df_eps['Implementation'].unique() if i != 'igraph']
+    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_eps['GraphType'].values]
+    fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
+                             sharey=True, squeeze=False)
+
+    for idx, gt in enumerate(graph_types):
+        ax = axes[0][idx]
+        dt = df_eps[df_eps['GraphType'] == gt]
+        ig = dt[dt['Implementation'] == 'igraph'][['Nodes', 'Time']].rename(
+            columns={'Time': 'ig_time'})
+        for impl in others:
+            di = dt[dt['Implementation'] == impl][['Nodes', 'Time']].rename(
+                columns={'Time': 'impl_time'})
+            merged = pd.merge(ig, di, on='Nodes').dropna()
+            if merged.empty:
+                continue
+            ax.plot(merged['Nodes'], merged['ig_time'] / merged['impl_time'],
+                    marker='|', markersize=6, linewidth=1,
+                    color=EPS_COLORS.get(impl, '#333'), label=impl)
+        ax.axhline(y=1.0, color='grey', linestyle='--', linewidth=1, alpha=0.7)
+        ax.set_xscale('log')
+        ax.set_xlabel('Number of Nodes', fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.3)
+    axes[0][0].set_ylabel('Speedup (igraph time / impl time)', fontweight='bold')
+    fig.suptitle('Speedup over igraph: effect of convergence threshold',
+                 fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    _save(fig, filename)
+
+
+def _epsilon_runtime(df_eps, filename):
+    """Absolute runtime comparison of BGL(eps=0), BGL(eps=1e-6), genlouvain, igraph."""
+    impls = [i for i in ['igraph', 'genlouvain',
+                          'BGL vecS/vecS (eps=0)', 'BGL vecS/vecS (eps=1e-6)']
+             if i in df_eps['Implementation'].values]
+    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_eps['GraphType'].values]
+    fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
+                             sharey=True, squeeze=False)
+
+    for idx, gt in enumerate(graph_types):
+        ax = axes[0][idx]
+        dt = df_eps[df_eps['GraphType'] == gt]
+        for impl in impls:
+            di = dt[dt['Implementation'] == impl].sort_values('Nodes')
+            if di.empty:
+                continue
+            ax.errorbar(di['Nodes'], di['Time'], yerr=di['Time_Std'],
+                        marker='|', markersize=6, linewidth=1, capsize=3,
+                        color=EPS_COLORS.get(impl, '#333'), label=impl)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlabel('Number of Nodes', fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.3)
+    axes[0][0].set_ylabel('Time (seconds)', fontweight='bold')
+    fig.suptitle('Runtime: BGL convergence threshold comparison',
+                 fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    _save(fig, filename)
+
+
+# Epsilon
+if os.path.exists('results/epsilon.csv'):
+    df_eps = pd.read_csv('results/epsilon.csv')
+    print(f"Loaded {len(df_eps)} rows from results/epsilon.csv")
+    print(f"Implementations: {', '.join(df_eps['Implementation'].unique())}")
+    print()
+
+    _epsilon_speedup(df_eps, 'results/epsilon_speedup.png')
+    _epsilon_runtime(df_eps, 'results/epsilon_runtime.png')

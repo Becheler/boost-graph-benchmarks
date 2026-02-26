@@ -58,3 +58,13 @@ Absolute runtime comparison between incremental and non-incremental modes, showi
 
 Modularity achieved by both modes, verifying that the incremental optimisation does not change the final partition quality.
 ![Correctness](results/inc_correctness.png)
+
+### Convergence Threshold (epsilon)
+
+BGL defaults to eps=0 (continue until zero improvement), while genlouvain uses eps=1e-6 (stop when modularity gain < 1e-6). These plots isolate how much of the runtime gap is due to this threshold policy vs. data-structure overhead.
+
+Speedup over igraph for BGL with both thresholds vs genlouvain, showing whether matching genlouvain's epsilon closes the performance gap.
+![Epsilon speedup](results/epsilon_speedup.png)
+
+Absolute runtime comparison across graph sizes, showing the wall-clock effect of the threshold change.
+![Epsilon runtime](results/epsilon_runtime.png)
