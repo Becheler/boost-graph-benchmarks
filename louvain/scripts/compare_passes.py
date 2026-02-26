@@ -29,9 +29,13 @@ import numpy as np
 
 # ── paths (relative to louvain/) ─────────────────────────────────────────
 
-BGL_HEADER = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), '..', '..', '..', 'forks', 'graph',
-    'include', 'boost', 'graph', 'louvain_clustering.hpp'))
+# Allow override via env var (used in CI where the fork lives elsewhere)
+_bgl_include = os.environ.get(
+    'BGL_GRAPH_INCLUDE',
+    os.path.abspath(os.path.join(
+        os.path.dirname(__file__), '..', '..', '..', 'forks', 'graph', 'include'))
+)
+BGL_HEADER = os.path.join(_bgl_include, 'boost', 'graph', 'louvain_clustering.hpp')
 
 GENLOUVAIN_SRC = os.path.abspath(os.path.join(
     os.path.dirname(__file__), '..', 'vendor', 'gen-louvain',

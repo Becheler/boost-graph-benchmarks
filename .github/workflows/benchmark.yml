@@ -11,6 +11,9 @@ concurrency:
   group: benchmark-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   benchmark:
     runs-on: ubuntu-latest
@@ -78,7 +81,26 @@ jobs:
       run: python scripts/visualize.py
       continue-on-error: true       # plots are optional; data is the deliverable
 
-    # ── upload results ───────────────────────────────────────────────────
+    # ── compare passes (cumulative_dQ plot) ──────────────────────────────
+    - name: Generate cumulative dQ comparison
+      working-directory: louvain
+      env:
+        BGL_GRAPH_INCLUDE: ${{ github.workspace }}/bgl-fork/include
+      run: python scripts/compare_passes.py --nodes 10000 --seed 42
+      continue-on-error: true       # requires patching sources; non-critical
+
+    # ── commit results back to the repo ─────────────────────────────────
+    - name: Commit updated results
+      if: github.event_name == 'push'
+      run: |
+        git config user.name  "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add louvain/results/*.csv louvain/results/*.png
+        git diff --staged --quiet || \
+          git commit -m "ci: update benchmark results [skip ci]" && \
+          git push
+
+    # ── upload results as artifact (always, including PRs) ───────────
     - name: Upload benchmark results
       uses: actions/upload-artifact@v4
       if: always()
