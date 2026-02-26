@@ -31,9 +31,9 @@ namespace bgl_benchmark {
 
 struct newman_and_girvan_non_incremental {
     template <typename Graph, typename CommunityMap, typename WeightMap>
-    static inline typename boost::property_traits<WeightMap>::value_type
+    typename boost::property_traits<WeightMap>::value_type
     quality(const Graph& g, const CommunityMap& communities, const WeightMap& weights) {
-        return boost::newman_and_girvan::quality(g, communities, weights);
+        return boost::newman_and_girvan{}.quality(g, communities, weights);
     }
 };
 
