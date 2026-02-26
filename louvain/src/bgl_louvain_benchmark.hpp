@@ -149,7 +149,7 @@ int run_adjacency_list(int argc, char* argv[]) {
         boost::vector_property_map<Vertex> communities;
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen, epsilon, epsilon);
+        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen, QualityFunction{}, epsilon, epsilon);
         auto t1 = std::chrono::high_resolution_clock::now();
 
         emit_timing(load_time, std::chrono::duration<double>(t1 - t0).count());
@@ -165,7 +165,7 @@ int run_adjacency_list(int argc, char* argv[]) {
         boost::associative_property_map<std::map<Vertex, Vertex>> communities(comm_store);
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen, epsilon, epsilon);
+        double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen, QualityFunction{}, epsilon, epsilon);
         auto t1 = std::chrono::high_resolution_clock::now();
 
         emit_timing(load_time, std::chrono::duration<double>(t1 - t0).count());
@@ -232,7 +232,7 @@ int run_adjacency_matrix(int argc, char* argv[]) {
     std::minstd_rand gen(seed);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen, epsilon, epsilon);
+    double Q = boost::louvain_clustering<QualityFunction>(g, communities, boost::get(boost::edge_weight, g), gen, QualityFunction{}, epsilon, epsilon);
     auto t1 = std::chrono::high_resolution_clock::now();
 
     emit_timing(load_time, std::chrono::duration<double>(t1 - t0).count());
