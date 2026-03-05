@@ -17,8 +17,8 @@ permissions:
 # ─────────────────────────────────────────────────────────────────────────
 # Job graph:
 #   build  ──►  correctness    ─┐
-#           ├►  runtime (×6)   ─┤  (small, medium, 100k-lfr,
-#           ├►  incremental    ─┤   100k-scalefree, 250k-lfr, 250k-scalefree)
+#           ├►  runtime (×4)   ─┤  (small, medium, 100k-lfr, 100k-scalefree)
+#           ├►  incremental    ─┤
 #           └►  epsilon        ─┴──►  visualize (merge + plot + commit)
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -139,12 +139,6 @@ jobs:
           - chunk: 100k-scalefree
             sizes: "100000"
             graph_types: "ScaleFree"
-          - chunk: 250k-lfr
-            sizes: "250000"
-            graph_types: "LFR"
-          - chunk: 250k-scalefree
-            sizes: "250000"
-            graph_types: "ScaleFree"
     steps:
     - uses: actions/checkout@v4
 
@@ -240,20 +234,6 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: results-runtime-100k-scalefree
-        path: louvain/results/
-      continue-on-error: true
-
-    - name: Download runtime (250k-lfr) results
-      uses: actions/download-artifact@v4
-      with:
-        name: results-runtime-250k-lfr
-        path: louvain/results/
-      continue-on-error: true
-
-    - name: Download runtime (250k-scalefree) results
-      uses: actions/download-artifact@v4
-      with:
-        name: results-runtime-250k-scalefree
         path: louvain/results/
       continue-on-error: true
 

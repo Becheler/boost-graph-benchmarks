@@ -312,7 +312,7 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
     print("=" * 60)
 
     if sizes is None:
-        sizes = [1000, 5000, 10000, 50000, 100000, 250000]
+        sizes = [1000, 5000, 10000, 50000, 100000]
     if graph_types is None:
         graph_types = ['LFR', 'ScaleFree']
 
