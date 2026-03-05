@@ -16,10 +16,10 @@ permissions:
 
 # ─────────────────────────────────────────────────────────────────────────
 # Job graph:
-#   build  ──►  correctness ─┐
-#           ├►  runtime      ─┤
-#           ├►  incremental  ─┼──►  visualize (merge + plot + commit)
-#           └►  epsilon      ─┘
+#   build  ──►  correctness    ─┐
+#           ├►  runtime (×6)   ─┤  (small, medium, 100k-lfr,
+#           ├►  incremental    ─┤   100k-scalefree, 250k-lfr, 250k-scalefree)
+#           └►  epsilon        ─┴──►  visualize (merge + plot + commit)
 # ─────────────────────────────────────────────────────────────────────────
 
 jobs:
@@ -129,10 +129,22 @@ jobs:
         include:
           - chunk: small
             sizes: "1000,5000"
+            graph_types: ""
           - chunk: medium
             sizes: "10000,50000"
-          - chunk: large
-            sizes: "100000,250000"
+            graph_types: ""
+          - chunk: 100k-lfr
+            sizes: "100000"
+            graph_types: "LFR"
+          - chunk: 100k-scalefree
+            sizes: "100000"
+            graph_types: "ScaleFree"
+          - chunk: 250k-lfr
+            sizes: "250000"
+            graph_types: "LFR"
+          - chunk: 250k-scalefree
+            sizes: "250000"
+            graph_types: "ScaleFree"
     steps:
     - uses: actions/checkout@v4
 
@@ -162,7 +174,8 @@ jobs:
         mkdir -p results
         python scripts/benchmark.py --only runtime \
           --sizes ${{ matrix.sizes }} \
-          --output-suffix _${{ matrix.chunk }}
+          --output-suffix _${{ matrix.chunk }} \
+          ${{ matrix.graph_types != '' && format('--graph-types {0}', matrix.graph_types) || '' }}
 
     - name: Upload runtime ${{ matrix.chunk }} results
       uses: actions/upload-artifact@v4
@@ -216,10 +229,31 @@ jobs:
         path: louvain/results/
       continue-on-error: true
 
-    - name: Download runtime (large) results
+    - name: Download runtime (100k-lfr) results
       uses: actions/download-artifact@v4
       with:
-        name: results-runtime-large
+        name: results-runtime-100k-lfr
+        path: louvain/results/
+      continue-on-error: true
+
+    - name: Download runtime (100k-scalefree) results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-runtime-100k-scalefree
+        path: louvain/results/
+      continue-on-error: true
+
+    - name: Download runtime (250k-lfr) results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-runtime-250k-lfr
+        path: louvain/results/
+      continue-on-error: true
+
+    - name: Download runtime (250k-scalefree) results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-runtime-250k-scalefree
         path: louvain/results/
       continue-on-error: true
 

@@ -290,7 +290,8 @@ def run_benchmark_correctness(n_trials=100):
 
 # ── runtime scalability ─────────────────────────────────────────────────
 
-def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix=''):
+def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
+                          graph_types=None):
     """Run runtime scalability benchmark.
 
     Benchmark fairness notes:
@@ -312,7 +313,8 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix=''):
 
     if sizes is None:
         sizes = [1000, 5000, 10000, 50000, 100000, 250000]
-    graph_types = ['LFR', 'ScaleFree']
+    if graph_types is None:
+        graph_types = ['LFR', 'ScaleFree']
 
     available_bgl = {n: e for n, e in ALL_BGL_VARIANTS.items()
                      if os.path.exists(e)}
@@ -765,6 +767,8 @@ if __name__ == '__main__':
                         help='Comma-separated list of graph sizes (for runtime/incremental/epsilon)')
     parser.add_argument('--output-suffix', type=str, default='',
                         help='Suffix appended to output CSV filename (e.g. "_part0")')
+    parser.add_argument('--graph-types', type=str, default=None,
+                        help='Comma-separated graph types to run (e.g. "LFR,ScaleFree")')
     args = parser.parse_args()
 
     os.makedirs('results', exist_ok=True)
@@ -773,6 +777,7 @@ if __name__ == '__main__':
         print('*** QUICK MODE — reduced trials & sizes ***\n')
 
     sizes_override = [int(s) for s in args.sizes.split(',')] if args.sizes else None
+    graph_types_override = args.graph_types.split(',') if args.graph_types else None
     suffix = args.output_suffix
 
     def _run(name):
@@ -783,7 +788,8 @@ if __name__ == '__main__':
             run_benchmark_runtime(
                 n_trials=3 if q else 10,
                 sizes=sizes_override or ([1000, 5000, 25000] if q else None),
-                output_suffix=suffix)
+                output_suffix=suffix,
+                graph_types=graph_types_override)
         elif name == 'incremental':
             run_benchmark_incremental(
                 n_trials=3 if q else 10,
