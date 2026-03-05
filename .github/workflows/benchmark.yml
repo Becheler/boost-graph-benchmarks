@@ -69,7 +69,7 @@ jobs:
         retention-days: 1
 
   # ══════════════════════════════════════════════════════════════════════
-  # 2. Run each benchmark in parallel
+  # 2a. Non-runtime benchmarks in parallel
   # ══════════════════════════════════════════════════════════════════════
   benchmark:
     needs: build
@@ -78,7 +78,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [correctness, runtime, incremental, epsilon]
+        suite: [correctness, incremental, epsilon]
     steps:
     - uses: actions/checkout@v4
 
@@ -117,10 +117,66 @@ jobs:
         retention-days: 30
 
   # ══════════════════════════════════════════════════════════════════════
+  # 2b. Runtime benchmark split by graph size
+  # ══════════════════════════════════════════════════════════════════════
+  runtime:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chunk: small
+            sizes: "1000,5000"
+          - chunk: medium
+            sizes: "10000,50000"
+          - chunk: large
+            sizes: "100000,250000"
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      working-directory: louvain
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r ../requirements-common.txt -r requirements.txt
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: louvain-build
+        path: louvain/build/
+
+    - name: Make binaries executable
+      run: chmod +x louvain/build/*
+
+    - name: Run runtime benchmark (${{ matrix.chunk }})
+      working-directory: louvain
+      run: |
+        mkdir -p results
+        python scripts/benchmark.py --only runtime \
+          --sizes ${{ matrix.sizes }} \
+          --output-suffix _${{ matrix.chunk }}
+
+    - name: Upload runtime ${{ matrix.chunk }} results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: results-runtime-${{ matrix.chunk }}
+        path: louvain/results/*.csv
+        retention-days: 30
+
+  # ══════════════════════════════════════════════════════════════════════
   # 3. Merge results, generate plots, and commit
   # ══════════════════════════════════════════════════════════════════════
   visualize:
-    needs: benchmark
+    needs: [benchmark, runtime]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -146,10 +202,24 @@ jobs:
         path: louvain/results/
       continue-on-error: true
 
-    - name: Download runtime results
+    - name: Download runtime (small) results
       uses: actions/download-artifact@v4
       with:
-        name: results-runtime
+        name: results-runtime-small
+        path: louvain/results/
+      continue-on-error: true
+
+    - name: Download runtime (medium) results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-runtime-medium
+        path: louvain/results/
+      continue-on-error: true
+
+    - name: Download runtime (large) results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-runtime-large
         path: louvain/results/
       continue-on-error: true
 
@@ -166,6 +236,24 @@ jobs:
         name: results-epsilon
         path: louvain/results/
       continue-on-error: true
+
+    - name: Merge runtime CSV chunks
+      working-directory: louvain
+      run: |
+        python -c "
+        import pandas as pd, glob, os
+        parts = sorted(glob.glob('results/runtime_*.csv'))
+        if parts:
+            df = pd.concat([pd.read_csv(p) for p in parts], ignore_index=True)
+            df.to_csv('results/runtime.csv', index=False)
+            print(f'Merged {len(parts)} runtime chunks into runtime.csv ({len(df)} rows)')
+            for p in parts:
+                os.remove(p)
+        elif os.path.exists('results/runtime.csv'):
+            print('runtime.csv already present, skipping merge')
+        else:
+            print('WARNING: no runtime CSVs found')
+        "
 
     - name: Generate visualizations
       working-directory: louvain
