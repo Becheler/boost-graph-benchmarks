@@ -265,7 +265,7 @@ def _speedup_over_igraph(df_rt, filename):
         ig = dt[dt['Implementation'] == 'igraph'][['Nodes', 'Time']].rename(columns={'Time': 'ig_time'})
         for j, impl in enumerate(others):
             di = dt[dt['Implementation'] == impl][['Nodes', 'Time']].rename(columns={'Time': 'impl_time'})
-            merged = pd.merge(ig, di, on='Nodes').dropna()
+            merged = pd.merge(ig, di, on='Nodes').dropna().sort_values('Nodes')
             if merged.empty:
                 continue
             ax.plot(merged['Nodes'], merged['ig_time'] / merged['impl_time'],
@@ -343,7 +343,7 @@ def _inc_speedup(df_inc, filename):
                 columns={'Time': 't_inc'})
             noinc = dv[dv['Mode'] == 'non-incremental'][['Nodes', 'Time']].rename(
                 columns={'Time': 't_noinc'})
-            merged = pd.merge(inc, noinc, on='Nodes').dropna()
+            merged = pd.merge(inc, noinc, on='Nodes').dropna().sort_values('Nodes')
             if merged.empty:
                 continue
             speedup = merged['t_noinc'] / merged['t_inc']
@@ -509,7 +509,7 @@ def _epsilon_speedup(df_eps, filename):
         for impl in others:
             di = dt[dt['Implementation'] == impl][['Nodes', 'Time']].rename(
                 columns={'Time': 'impl_time'})
-            merged = pd.merge(ig, di, on='Nodes').dropna()
+            merged = pd.merge(ig, di, on='Nodes').dropna().sort_values('Nodes')
             if merged.empty:
                 continue
             ax.plot(merged['Nodes'], merged['ig_time'] / merged['impl_time'],
