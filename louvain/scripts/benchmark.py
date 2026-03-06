@@ -28,6 +28,11 @@ ALL_BGL_VARIANTS = {
     'BGL adj_matrix': './build/bgl_louvain_matrix',
 }
 
+# Extra BGL configuration: vecS/vecS with inner threshold matching gen-louvain
+BGL_EPS_VARIANT = {
+    'BGL vecS/vecS (eps=1e-6)': ('./build/bgl_louvain_vecS_vecS', ['1e-6']),
+}
+
 MATRIX_MAX_NODES = 5000  # adjacency_matrix is O(V^2) memory
 
 ALL_BGL_VARIANTS_NOINC = {
@@ -455,6 +460,37 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
                     })
                     short = bgl_name.split()[-1]
                     summary_parts.append(f"{short} FAIL")
+
+            # ── BGL vecS/vecS with eps=1e-6 (mimics gen-louvain threshold) ──
+            for bgl_name, (exe, extra) in BGL_EPS_VARIANT.items():
+                if os.path.exists(exe):
+                    times, comms = [], []
+                    for _ in range(n_trials):
+                        t, _, partition = run_bgl_exe(exe, temp_file,
+                                                     extra_args=extra)
+                        if t is not None:
+                            times.append(t)
+                        if partition is not None:
+                            comms.append(len(set(partition)))
+
+                    if times:
+                        results.append({
+                            'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                            'Implementation': bgl_name,
+                            'Time': np.mean(times), 'Time_Std': np.std(times),
+                            'Communities': np.mean(comms) if comms else float('nan'),
+                            'Communities_Std': np.std(comms) if comms else float('nan'),
+                        })
+                        summary_parts.append(f"eps1e-6 {np.mean(times):.4f}s")
+                    else:
+                        results.append({
+                            'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                            'Implementation': bgl_name,
+                            'Time': float('nan'), 'Time_Std': float('nan'),
+                            'Communities': float('nan'),
+                            'Communities_Std': float('nan'),
+                        })
+                        summary_parts.append("eps1e-6 FAIL")
 
             os.unlink(temp_file)
             print(', '.join(summary_parts))

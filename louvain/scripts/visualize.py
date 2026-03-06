@@ -18,21 +18,23 @@ plt.rcParams['font.size'] = 10
 # Canonical ordering and colours for all implementations.
 ALL_IMPLEMENTATIONS = [
     'NetworkX', 'igraph', 'genlouvain',
-    'BGL vecS/vecS', 'BGL listS/vecS', 'BGL setS/vecS', 'BGL adj_matrix',
+    'BGL vecS/vecS', 'BGL vecS/vecS (eps=1e-6)',
+    'BGL listS/vecS', 'BGL setS/vecS', 'BGL adj_matrix',
 ]
 IMPL_COLORS = {
-    'NetworkX':        '#1f77b4',
-    'igraph':          '#ff7f0e',
-    'genlouvain':      '#d62728',
-    'BGL vecS/vecS':   '#2ca02c',
-    'BGL listS/vecS':  '#9467bd',
-    'BGL setS/vecS':   '#8c564b',
-    'BGL adj_matrix':  '#e377c2',
+    'NetworkX':                   '#1f77b4',
+    'igraph':                     '#ff7f0e',
+    'genlouvain':                 '#d62728',
+    'BGL vecS/vecS':              '#2ca02c',
+    'BGL vecS/vecS (eps=1e-6)':   '#17becf',
+    'BGL listS/vecS':             '#9467bd',
+    'BGL setS/vecS':              '#8c564b',
+    'BGL adj_matrix':             '#e377c2',
 }
 
 # Subsets used by specific plot families
 REFS = ['NetworkX', 'igraph', 'genlouvain']
-BGL_VARIANTS = ['BGL vecS/vecS', 'BGL listS/vecS', 'BGL setS/vecS', 'BGL adj_matrix']
+BGL_VARIANTS = ['BGL vecS/vecS', 'BGL vecS/vecS (eps=1e-6)', 'BGL listS/vecS', 'BGL setS/vecS', 'BGL adj_matrix']
 
 os.makedirs('results', exist_ok=True)
 
