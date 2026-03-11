@@ -337,7 +337,7 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
     if sizes is None:
         sizes = [1000, 5000, 10000, 50000, 100000]
     if graph_types is None:
-        graph_types = ['LFR', 'ScaleFree']
+        graph_types = ['LFR']
 
     available_bgl = {n: e for n, e in ALL_BGL_VARIANTS.items()
                      if os.path.exists(e)}
@@ -350,17 +350,14 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
         for n in sizes:
             print(f"  n={n:,}...", end=' ', flush=True)
 
-            if graph_type == 'LFR':
-                try:
-                    G = nx.generators.community.LFR_benchmark_graph(
-                        n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
-                        max_degree=min(50, n // 10),
-                        min_community=max(10, n // 100),
-                        max_community=min(n // 10, n // 2), seed=42)
-                except Exception:
-                    G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
-            else:
-                G = nx.barabasi_albert_graph(n, 3, seed=42)
+            try:
+                G = nx.generators.community.LFR_benchmark_graph(
+                    n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
+                    max_degree=min(50, n // 10),
+                    min_community=max(10, n // 100),
+                    max_community=min(n // 10, n // 2), seed=42)
+            except Exception:
+                G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
 
             m = G.number_of_edges()
 
@@ -543,7 +540,7 @@ def run_benchmark_incremental(n_trials=10, sizes=None):
 
     if sizes is None:
         sizes = [100, 500, 1000]
-    graph_types = ['LFR', 'ScaleFree']
+    graph_types = ['LFR']
 
     available_inc = {n: e for n, e in ALL_BGL_VARIANTS.items()
                      if os.path.exists(e)}
@@ -557,17 +554,14 @@ def run_benchmark_incremental(n_trials=10, sizes=None):
         for n in sizes:
             print(f"  n={n:,}...", flush=True)
 
-            if graph_type == 'LFR':
-                try:
-                    G = nx.generators.community.LFR_benchmark_graph(
-                        n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
-                        max_degree=min(50, n // 10),
-                        min_community=max(10, n // 100),
-                        max_community=min(n // 10, n // 2), seed=42)
-                except Exception:
-                    G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
-            else:
-                G = nx.barabasi_albert_graph(n, 3, seed=42)
+            try:
+                G = nx.generators.community.LFR_benchmark_graph(
+                    n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
+                    max_degree=min(50, n // 10),
+                    min_community=max(10, n // 100),
+                    max_community=min(n // 10, n // 2), seed=42)
+            except Exception:
+                G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
 
             m = G.number_of_edges()
 
@@ -681,7 +675,7 @@ def run_benchmark_epsilon(n_trials=10, sizes=None):
 
     if sizes is None:
         sizes = [1000, 5000, 10000, 50000]
-    graph_types = ['LFR', 'ScaleFree']
+    graph_types = ['LFR']
 
     bgl_exe = './build/bgl_louvain_vecS_vecS'
     if not os.path.exists(bgl_exe):
@@ -696,17 +690,14 @@ def run_benchmark_epsilon(n_trials=10, sizes=None):
         for n in sizes:
             print(f"  n={n:,}...", end=' ', flush=True)
 
-            if graph_type == 'LFR':
-                try:
-                    G = nx.generators.community.LFR_benchmark_graph(
-                        n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
-                        max_degree=min(50, n // 10),
-                        min_community=max(10, n // 100),
-                        max_community=min(n // 10, n // 2), seed=42)
-                except Exception:
-                    G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
-            else:
-                G = nx.barabasi_albert_graph(n, 3, seed=42)
+            try:
+                G = nx.generators.community.LFR_benchmark_graph(
+                    n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
+                    max_degree=min(50, n // 10),
+                    min_community=max(10, n // 100),
+                    max_community=min(n // 10, n // 2), seed=42)
+            except Exception:
+                G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
 
             m = G.number_of_edges()
 
@@ -818,7 +809,7 @@ def run_benchmark_trust_q(n_trials=10, sizes=None):
     directly, skipping the per-level recheck.
 
     Measures both runtime and correctness (modularity, #communities)
-    on synthetic LFR and ScaleFree graphs.
+    on synthetic LFR graphs.
 
     Output: results/trust_q.csv
         Columns: GraphType, Nodes, Edges, Variant, Mode,
@@ -830,7 +821,7 @@ def run_benchmark_trust_q(n_trials=10, sizes=None):
 
     if sizes is None:
         sizes = [1000, 5000, 10000, 50000]
-    graph_types = ['LFR', 'ScaleFree']
+    graph_types = ['LFR']
 
     available_default = {n: e for n, e in ALL_BGL_VARIANTS.items()
                          if os.path.exists(e)}
@@ -851,17 +842,14 @@ def run_benchmark_trust_q(n_trials=10, sizes=None):
         for n in sizes:
             print(f"  n={n:,}...", flush=True)
 
-            if graph_type == 'LFR':
-                try:
-                    G = nx.generators.community.LFR_benchmark_graph(
-                        n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
-                        max_degree=min(50, n // 10),
-                        min_community=max(10, n // 100),
-                        max_community=min(n // 10, n // 2), seed=42)
-                except Exception:
-                    G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
-            else:
-                G = nx.barabasi_albert_graph(n, 3, seed=42)
+            try:
+                G = nx.generators.community.LFR_benchmark_graph(
+                    n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
+                    max_degree=min(50, n // 10),
+                    min_community=max(10, n // 100),
+                    max_community=min(n // 10, n // 2), seed=42)
+            except Exception:
+                G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
 
             m = G.number_of_edges()
 
@@ -969,7 +957,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-suffix', type=str, default='',
                         help='Suffix appended to output CSV filename (e.g. "_part0")')
     parser.add_argument('--graph-types', type=str, default=None,
-                        help='Comma-separated graph types to run (e.g. "LFR,ScaleFree")')
+                        help='Comma-separated graph types to run (e.g. "LFR")')
     args = parser.parse_args()
 
     os.makedirs('results', exist_ok=True)

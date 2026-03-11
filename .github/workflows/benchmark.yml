@@ -17,9 +17,10 @@ permissions:
 # ─────────────────────────────────────────────────────────────────────────
 # Job graph:
 #   build  ──►  correctness    ─┐
-#           ├►  runtime (×4)   ─┤  (small, medium, 100k-lfr, 100k-scalefree)
+#           ├►  runtime (×3)   ─┤  (small, medium, 100k-lfr)
 #           ├►  incremental    ─┤
-#           └►  epsilon        ─┴──►  visualize (merge + plot + commit)
+#           ├►  epsilon        ─┤
+#           └►  trust_q        ─┴──►  visualize (merge + plot + commit)
 # ─────────────────────────────────────────────────────────────────────────
 
 jobs:
@@ -78,7 +79,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [correctness, incremental, epsilon]
+        suite: [correctness, incremental, epsilon, trust_q]
     steps:
     - uses: actions/checkout@v4
 
@@ -136,9 +137,6 @@ jobs:
           - chunk: 100k-lfr
             sizes: "100000"
             graph_types: "LFR"
-          - chunk: 100k-scalefree
-            sizes: "100000"
-            graph_types: "ScaleFree"
     steps:
     - uses: actions/checkout@v4
 
@@ -230,13 +228,6 @@ jobs:
         path: louvain/results/
       continue-on-error: true
 
-    - name: Download runtime (100k-scalefree) results
-      uses: actions/download-artifact@v4
-      with:
-        name: results-runtime-100k-scalefree
-        path: louvain/results/
-      continue-on-error: true
-
     - name: Download incremental results
       uses: actions/download-artifact@v4
       with:
@@ -248,6 +239,13 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: results-epsilon
+        path: louvain/results/
+      continue-on-error: true
+
+    - name: Download trust_q results
+      uses: actions/download-artifact@v4
+      with:
+        name: results-trust_q
         path: louvain/results/
       continue-on-error: true
 

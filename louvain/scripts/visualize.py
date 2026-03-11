@@ -190,7 +190,7 @@ def _runtime_scalability(df_rt, filename, impls=None):
     else:
         impls = _ordered(impls, df_rt['Implementation'])
 
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_rt['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
 
@@ -225,7 +225,7 @@ def _communities_detected(df_rt, filename, impls=None):
     if 'Communities' not in df_rt.columns:
         return
 
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_rt['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
 
@@ -258,7 +258,7 @@ def _speedup_over_igraph(df_rt, filename):
     if not others:
         return
 
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_rt['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5), sharey=True, squeeze=False)
 
     for idx, gt in enumerate(graph_types):
@@ -328,7 +328,7 @@ INC_COLORS = {
 def _inc_speedup(df_inc, filename):
     """Bar chart: speedup of incremental over non-incremental per variant/size."""
     variants = df_inc['Variant'].unique()
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_inc['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_inc['GraphType'].values]
 
     fig, axes = plt.subplots(1, len(graph_types),
                              figsize=(7 * len(graph_types), 5),
@@ -369,7 +369,7 @@ def _inc_speedup(df_inc, filename):
 
 def _inc_runtime(df_inc, filename):
     """Grouped bar chart: runtime of inc vs non-inc per variant and graph size."""
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_inc['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_inc['GraphType'].values]
     variants = list(df_inc['Variant'].unique())
 
     fig, axes = plt.subplots(len(graph_types), 1,
@@ -423,7 +423,7 @@ def _inc_runtime(df_inc, filename):
 
 def _inc_correctness(df_inc, filename):
     """Grouped bar chart: modularity of inc vs non-inc per variant and graph type."""
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_inc['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_inc['GraphType'].values]
     variants = list(df_inc['Variant'].unique())
 
     fig, axes = plt.subplots(len(graph_types), 1,
@@ -498,7 +498,7 @@ TRUST_COLORS = {
 
 def _trust_q_runtime(df_trust, filename):
     """Runtime comparison: safe vs trust-Q per variant and graph size."""
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_trust['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_trust['GraphType'].values]
     variants = list(df_trust['Variant'].unique())
 
     fig, axes = plt.subplots(len(graph_types), 1,
@@ -551,7 +551,7 @@ def _trust_q_runtime(df_trust, filename):
 
 def _trust_q_correctness(df_trust, filename):
     """Modularity comparison: safe vs trust-Q per variant and graph size."""
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_trust['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_trust['GraphType'].values]
     variants = list(df_trust['Variant'].unique())
 
     fig, axes = plt.subplots(len(graph_types), 1,
@@ -604,7 +604,7 @@ def _trust_q_correctness(df_trust, filename):
 def _trust_q_speedup(df_trust, filename):
     """Speedup of trust-Q over safe per variant, as line plot vs graph size."""
     variants = df_trust['Variant'].unique()
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_trust['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_trust['GraphType'].values]
 
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
@@ -665,7 +665,7 @@ EPS_COLORS = {
 def _epsilon_speedup(df_eps, filename):
     """Speedup over igraph for BGL(eps=0), BGL(eps=1e-6), and genlouvain."""
     others = [i for i in df_eps['Implementation'].unique() if i != 'igraph']
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_eps['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_eps['GraphType'].values]
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
 
@@ -701,7 +701,7 @@ def _epsilon_runtime(df_eps, filename):
     impls = [i for i in ['igraph', 'genlouvain',
                           'BGL vecS/vecS (eps=0)', 'BGL vecS/vecS (eps=1e-6)']
              if i in df_eps['Implementation'].values]
-    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_eps['GraphType'].values]
+    graph_types = [gt for gt in ['LFR'] if gt in df_eps['GraphType'].values]
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
 
