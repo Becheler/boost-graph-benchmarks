@@ -86,6 +86,8 @@ jobs:
             args: "--only epsilon"
           - suite: trust_q
             args: "--only trust_q"
+          - suite: ablation
+            args: "--only ablation"
     steps:
     - uses: actions/checkout@v4
 
