@@ -199,6 +199,10 @@ jobs:
     - name: Make binaries executable
       run: chmod +x louvain/build/*
 
+    - name: Prepare gen-louvain source
+      working-directory: louvain/vendor/gen-louvain
+      run: bash build.sh
+
     - name: Generate cumulative dQ comparison
       working-directory: louvain
       env:
