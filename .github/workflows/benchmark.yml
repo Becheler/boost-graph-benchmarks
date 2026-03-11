@@ -15,22 +15,16 @@ permissions:
   contents: write
 
 # ─────────────────────────────────────────────────────────────────────────
-# Job graph:
-#   build  ──►  correctness    ─┐
-#           ├►  runtime (×3)   ─┤  (small, medium, 100k-lfr)
-#           ├►  incremental    ─┤
-#           ├►  epsilon        ─┤
-#           └►  trust_q        ─┴──►  visualize (merge + plot + commit)
+# Job graph:   build  ──►  benchmark (×7 matrix)  ──►  visualize
 # ─────────────────────────────────────────────────────────────────────────
 
 jobs:
 
   # ══════════════════════════════════════════════════════════════════════
-  # 1. Build all C++ binaries and upload as artifact
+  # 1. Build all C++ binaries
   # ══════════════════════════════════════════════════════════════════════
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v4
 
@@ -54,8 +48,7 @@ jobs:
     - name: Build all C++ binaries
       working-directory: louvain
       run: |
-        mkdir -p build
-        cd build
+        mkdir -p build && cd build
         cmake ../src \
           -DCMAKE_BUILD_TYPE=Release \
           -DBGL_GRAPH_INCLUDE=${{ github.workspace }}/bgl-fork/include \
@@ -70,16 +63,29 @@ jobs:
         retention-days: 1
 
   # ══════════════════════════════════════════════════════════════════════
-  # 2a. Non-runtime benchmarks in parallel
+  # 2. Run all benchmarks in parallel
   # ══════════════════════════════════════════════════════════════════════
   benchmark:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        suite: [correctness, incremental, epsilon, trust_q]
+        include:
+          - suite: correctness
+            args: "--only correctness"
+          - suite: runtime-small
+            args: "--only runtime --sizes 1000,5000 --output-suffix _small"
+          - suite: runtime-medium
+            args: "--only runtime --sizes 10000,50000 --output-suffix _medium"
+          - suite: runtime-100k-lfr
+            args: "--only runtime --sizes 100000 --output-suffix _100k-lfr"
+          - suite: incremental
+            args: "--only incremental"
+          - suite: epsilon
+            args: "--only epsilon"
+          - suite: trust_q
+            args: "--only trust_q"
     steps:
     - uses: actions/checkout@v4
 
@@ -107,7 +113,7 @@ jobs:
       working-directory: louvain
       run: |
         mkdir -p results
-        python scripts/benchmark.py --only ${{ matrix.suite }}
+        python scripts/benchmark.py ${{ matrix.args }}
 
     - name: Upload ${{ matrix.suite }} results
       uses: actions/upload-artifact@v4
@@ -118,73 +124,12 @@ jobs:
         retention-days: 30
 
   # ══════════════════════════════════════════════════════════════════════
-  # 2b. Runtime benchmark split by graph size
-  # ══════════════════════════════════════════════════════════════════════
-  runtime:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - chunk: small
-            sizes: "1000,5000"
-            graph_types: ""
-          - chunk: medium
-            sizes: "10000,50000"
-            graph_types: ""
-          - chunk: 100k-lfr
-            sizes: "100000"
-            graph_types: "LFR"
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install Python dependencies
-      working-directory: louvain
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r ../requirements-common.txt -r requirements.txt
-
-    - name: Download build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: louvain-build
-        path: louvain/build/
-
-    - name: Make binaries executable
-      run: chmod +x louvain/build/*
-
-    - name: Run runtime benchmark (${{ matrix.chunk }})
-      working-directory: louvain
-      run: |
-        mkdir -p results
-        python scripts/benchmark.py --only runtime \
-          --sizes ${{ matrix.sizes }} \
-          --output-suffix _${{ matrix.chunk }} \
-          ${{ matrix.graph_types != '' && format('--graph-types {0}', matrix.graph_types) || '' }}
-
-    - name: Upload runtime ${{ matrix.chunk }} results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: results-runtime-${{ matrix.chunk }}
-        path: louvain/results/*.csv
-        retention-days: 30
-
-  # ══════════════════════════════════════════════════════════════════════
   # 3. Merge results, generate plots, and commit
   # ══════════════════════════════════════════════════════════════════════
   visualize:
-    needs: [benchmark, runtime]
+    needs: benchmark
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v4
 
@@ -199,54 +144,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r ../requirements-common.txt -r requirements.txt
 
-    # Download all benchmark CSVs into results/
-    - name: Download correctness results
+    - name: Download all benchmark results
       uses: actions/download-artifact@v4
       with:
-        name: results-correctness
+        pattern: results-*
         path: louvain/results/
-      continue-on-error: true
-
-    - name: Download runtime (small) results
-      uses: actions/download-artifact@v4
-      with:
-        name: results-runtime-small
-        path: louvain/results/
-      continue-on-error: true
-
-    - name: Download runtime (medium) results
-      uses: actions/download-artifact@v4
-      with:
-        name: results-runtime-medium
-        path: louvain/results/
-      continue-on-error: true
-
-    - name: Download runtime (100k-lfr) results
-      uses: actions/download-artifact@v4
-      with:
-        name: results-runtime-100k-lfr
-        path: louvain/results/
-      continue-on-error: true
-
-    - name: Download incremental results
-      uses: actions/download-artifact@v4
-      with:
-        name: results-incremental
-        path: louvain/results/
-      continue-on-error: true
-
-    - name: Download epsilon results
-      uses: actions/download-artifact@v4
-      with:
-        name: results-epsilon
-        path: louvain/results/
-      continue-on-error: true
-
-    - name: Download trust_q results
-      uses: actions/download-artifact@v4
-      with:
-        name: results-trust_q
-        path: louvain/results/
+        merge-multiple: true
       continue-on-error: true
 
     - name: Merge runtime CSV chunks
@@ -272,7 +175,7 @@ jobs:
       run: python scripts/visualize.py
       continue-on-error: true
 
-    # compare_passes needs C++ binaries + fork headers to patch & rebuild
+    # compare_passes needs fork headers to patch & rebuild
     - name: Clone Boost.Graph fork
       run: |
         git clone --depth 1 --branch feature/louvain-algorithm \
@@ -301,7 +204,6 @@ jobs:
       run: python scripts/compare_passes.py --nodes 10000 --seed 42
       continue-on-error: true
 
-    # Commit everything back
     - name: Commit updated results
       if: github.event_name == 'push'
       run: |
