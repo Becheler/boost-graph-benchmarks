@@ -81,3 +81,36 @@ Modularity achieved by both modes, verifying whether skipping the per-level rech
 
 Speedup of trust-Q over safe mode per variant, showing the cost of the per-level Q recomputation.
 ![Trust-Q speedup](results/trust_q_speedup.png)
+
+### Ablation: Trust-Q × Track-Peak-Q
+
+`louvain_clustering` exposes two compile-time toggles that control the outer loop:
+
+| Macro | Default | Effect |
+|---|---|---|
+| `BOOST_GRAPH_LOUVAIN_TRUST_AGGREGATED_Q` | 0 | When 1, use `Q_agg` from the coarsened graph directly instead of recomputing Q on the original graph (saves one O(V₀+E₀) traversal per outer iteration). |
+| `BOOST_GRAPH_LOUVAIN_TRACK_PEAK_Q` | 0 | When 1, keep a copy of the best partition seen across levels and restore it at the end (adds one O(V₀) copy per iteration where Q improves). |
+
+The previous trust-Q benchmark showed it was initially more efficient but the safe/trust performance ratio dropped below 1 for larger graphs, which is counter-intuitive. This ablation disentangles the two effects by benchmarking all four combinations independently:
+
+| Config | TRUST_AGGREGATED_Q | TRACK_PEAK_Q |
+|---|---|---|
+| baseline | 0 | 0 |
+| trust-Q | 1 | 0 |
+| peak-Q | 0 | 1 |
+| trust+peak | 1 | 1 |
+
+Absolute runtime of all four modes for each BGL graph-type variant across graph sizes, showing which toggle(s) add or save time.
+![Ablation runtime](results/ablation_runtime.png)
+
+Modularity achieved by all four modes, verifying whether each toggle changes the final partition quality.
+![Ablation modularity](results/ablation_modularity.png)
+
+Speedup of each mode relative to baseline (>1 = faster), per variant across graph sizes — the key plot for understanding which toggle helps at which scale.
+![Ablation speedup](results/ablation_speedup.png)
+
+Modularity delta vs baseline (positive = better Q), showing whether skipping the recheck or tracking the peak hurts or helps partition quality.
+![Ablation Q delta](results/ablation_q_delta.png)
+
+Heatmap summary of speedup vs baseline across all variant × size × mode combinations for a quick overview.
+![Ablation heatmap](results/ablation_heatmap.png)
