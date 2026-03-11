@@ -289,10 +289,12 @@ def _speedup_over_igraph(df_rt, filename):
 
 # Correctness
 if os.path.exists('results/correctness.csv'):
+  try:
     df = pd.read_csv('results/correctness.csv')
+    df = df.dropna(subset=['Implementation'])
     print(f"Loaded {len(df)} data points from results/correctness.csv")
-    print(f"Graphs: {', '.join(df['Graph'].unique())}")
-    print(f"Implementations: {', '.join(df['Implementation'].unique())}")
+    print(f"Graphs: {', '.join(str(g) for g in df['Graph'].unique())}")
+    print(f"Implementations: {', '.join(str(i) for i in df['Implementation'].unique())}")
     print()
 
     _boxplot_by_graph(df, 'Modularity', 'Modularity (Q)',
@@ -306,16 +308,22 @@ if os.path.exists('results/correctness.csv'):
                   '((Impl Comms - Mean Comms) / Mean Comms) x 100',
                   'Relative Communities Performance', 'results/relative_communities.png')
     _bgl_vs_refs(df, 'results/bgl_vs_refs.png')
+  except Exception as e:
+    print(f"WARNING: correctness plots failed: {e}")
 
 # Runtime
 if os.path.exists('results/runtime.csv'):
+  try:
     df_rt = pd.read_csv('results/runtime.csv')
+    df_rt = df_rt.dropna(subset=['Implementation'])
     print(f"Loaded {len(df_rt)} rows from results/runtime.csv")
-    print(f"Implementations: {', '.join(df_rt['Implementation'].unique())}")
+    print(f"Implementations: {', '.join(str(i) for i in df_rt['Implementation'].unique())}")
     print()
     _runtime_scalability(df_rt, 'results/runtime.png')
     _communities_detected(df_rt, 'results/communities.png')
     _speedup_over_igraph(df_rt, 'results/speedup.png')
+  except Exception as e:
+    print(f"WARNING: runtime plots failed: {e}")
 
 # ── incremental vs non-incremental plots ─────────────────────────────────
 
@@ -475,15 +483,18 @@ def _inc_correctness(df_inc, filename):
 
 # Incremental vs Non-Incremental
 if os.path.exists('results/incremental.csv'):
+  try:
     df_inc = pd.read_csv('results/incremental.csv')
     print(f"Loaded {len(df_inc)} rows from results/incremental.csv")
-    print(f"Variants: {', '.join(df_inc['Variant'].unique())}")
-    print(f"Modes: {', '.join(df_inc['Mode'].unique())}")
+    print(f"Variants: {', '.join(str(v) for v in df_inc['Variant'].unique())}")
+    print(f"Modes: {', '.join(str(m) for m in df_inc['Mode'].unique())}")
     print()
 
     _inc_speedup(df_inc, 'results/inc_speedup.png')
     _inc_runtime(df_inc, 'results/inc_runtime.png')
     _inc_correctness(df_inc, 'results/inc_correctness.png')
+  except Exception as e:
+    print(f"WARNING: incremental plots failed: {e}")
 
 
 # ── epsilon threshold comparison plots ────────────────────────────────────
@@ -641,15 +652,18 @@ def _trust_q_speedup(df_trust, filename):
 
 # Trust-Q vs Safe-Q
 if os.path.exists('results/trust_q.csv'):
+  try:
     df_trust = pd.read_csv('results/trust_q.csv')
     print(f"Loaded {len(df_trust)} rows from results/trust_q.csv")
-    print(f"Variants: {', '.join(df_trust['Variant'].unique())}")
-    print(f"Modes: {', '.join(df_trust['Mode'].unique())}")
+    print(f"Variants: {', '.join(str(v) for v in df_trust['Variant'].unique())}")
+    print(f"Modes: {', '.join(str(m) for m in df_trust['Mode'].unique())}")
     print()
 
     _trust_q_runtime(df_trust, 'results/trust_q_runtime.png')
     _trust_q_correctness(df_trust, 'results/trust_q_correctness.png')
     _trust_q_speedup(df_trust, 'results/trust_q_speedup.png')
+  except Exception as e:
+    print(f"WARNING: trust_q plots failed: {e}")
 
 
 # ── ablation: Trust-Q × Track-Peak-Q ─────────────────────────────────────
@@ -910,10 +924,11 @@ def _ablation_heatmap(df_abl, filename):
 
 # Ablation
 if os.path.exists('results/ablation.csv'):
+  try:
     df_abl = pd.read_csv('results/ablation.csv')
     print(f"Loaded {len(df_abl)} rows from results/ablation.csv")
-    print(f"Variants: {', '.join(df_abl['Variant'].unique())}")
-    print(f"Modes: {', '.join(df_abl['Mode'].unique())}")
+    print(f"Variants: {', '.join(str(v) for v in df_abl['Variant'].unique())}")
+    print(f"Modes: {', '.join(str(m) for m in df_abl['Mode'].unique())}")
     print()
 
     _ablation_runtime_bars(df_abl, 'results/ablation_runtime.png')
@@ -921,6 +936,8 @@ if os.path.exists('results/ablation.csv'):
     _ablation_speedup_vs_baseline(df_abl, 'results/ablation_speedup.png')
     _ablation_q_delta_vs_baseline(df_abl, 'results/ablation_q_delta.png')
     _ablation_heatmap(df_abl, 'results/ablation_heatmap.png')
+  except Exception as e:
+    print(f"WARNING: ablation plots failed: {e}")
 
 
 # \u2500\u2500 epsilon threshold comparison plots \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -1001,10 +1018,14 @@ def _epsilon_runtime(df_eps, filename):
 
 # Epsilon
 if os.path.exists('results/epsilon.csv'):
+  try:
     df_eps = pd.read_csv('results/epsilon.csv')
+    df_eps = df_eps.dropna(subset=['Implementation'])
     print(f"Loaded {len(df_eps)} rows from results/epsilon.csv")
-    print(f"Implementations: {', '.join(df_eps['Implementation'].unique())}")
+    print(f"Implementations: {', '.join(str(i) for i in df_eps['Implementation'].unique())}")
     print()
 
     _epsilon_speedup(df_eps, 'results/epsilon_speedup.png')
     _epsilon_runtime(df_eps, 'results/epsilon_runtime.png')
+  except Exception as e:
+    print(f"WARNING: epsilon plots failed: {e}")
