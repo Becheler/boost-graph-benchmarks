@@ -68,6 +68,45 @@ TRUST_TO_DEFAULT = {
     'BGL adj_matrix (trust-Q)': 'BGL adj_matrix',
 }
 
+# "Track peak Q" variants — compiled with BOOST_GRAPH_LOUVAIN_TRACK_PEAK_Q=1.
+# Recomputes Q on original graph (safe) *and* keeps the best partition.
+ALL_BGL_VARIANTS_PEAK = {
+    'BGL vecS/vecS (peak-Q)':  './build/bgl_louvain_vecS_vecS_peak',
+    'BGL listS/vecS (peak-Q)': './build/bgl_louvain_listS_vecS_peak',
+    'BGL setS/vecS (peak-Q)':  './build/bgl_louvain_setS_vecS_peak',
+    'BGL adj_matrix (peak-Q)': './build/bgl_louvain_matrix_peak',
+}
+
+PEAK_TO_DEFAULT = {
+    'BGL vecS/vecS (peak-Q)':  'BGL vecS/vecS',
+    'BGL listS/vecS (peak-Q)': 'BGL listS/vecS',
+    'BGL setS/vecS (peak-Q)':  'BGL setS/vecS',
+    'BGL adj_matrix (peak-Q)': 'BGL adj_matrix',
+}
+
+# "Trust + Peak" variants — both toggles enabled.
+ALL_BGL_VARIANTS_TRUST_PEAK = {
+    'BGL vecS/vecS (trust+peak)':  './build/bgl_louvain_vecS_vecS_trust_peak',
+    'BGL listS/vecS (trust+peak)': './build/bgl_louvain_listS_vecS_trust_peak',
+    'BGL setS/vecS (trust+peak)':  './build/bgl_louvain_setS_vecS_trust_peak',
+    'BGL adj_matrix (trust+peak)': './build/bgl_louvain_matrix_trust_peak',
+}
+
+TRUST_PEAK_TO_DEFAULT = {
+    'BGL vecS/vecS (trust+peak)':  'BGL vecS/vecS',
+    'BGL listS/vecS (trust+peak)': 'BGL listS/vecS',
+    'BGL setS/vecS (trust+peak)':  'BGL setS/vecS',
+    'BGL adj_matrix (trust+peak)': 'BGL adj_matrix',
+}
+
+# The four ablation modes, each with (label-suffix → exe-dict, mapping-dict)
+ABLATION_MODES = [
+    ('baseline',    ALL_BGL_VARIANTS,            None),
+    ('trust-Q',     ALL_BGL_VARIANTS_TRUST,      TRUST_TO_DEFAULT),
+    ('peak-Q',      ALL_BGL_VARIANTS_PEAK,       PEAK_TO_DEFAULT),
+    ('trust+peak',  ALL_BGL_VARIANTS_TRUST_PEAK,  TRUST_PEAK_TO_DEFAULT),
+]
+
 
 def write_edgelist(G, filename):
     """Write graph to edge list format."""
@@ -942,9 +981,116 @@ def run_benchmark_trust_q(n_trials=10, sizes=None):
     return df
 
 
+# ── ablation: Trust-Q × Track-Peak-Q ─────────────────────────────────────
+
+def run_benchmark_ablation(n_trials=10, sizes=None):
+    """2×2 ablation of TRUST_AGGREGATED_Q and TRACK_PEAK_Q.
+
+    Runs all four configurations (baseline, trust-only, peak-only,
+    trust+peak) for every BGL graph-type variant.  This disentangles
+    the two optimisations and makes it clear which one is responsible
+    for any speed-up or modularity change at each graph size.
+
+    Output: results/ablation.csv
+        Columns: GraphType, Nodes, Edges, Variant, Mode,
+                 Time, Time_Std, Modularity, Modularity_Std,
+                 Communities, Communities_Std
+    """
+    print("\nAblation Benchmark: Trust-Q × Track-Peak-Q")
+    print("=" * 60)
+
+    if sizes is None:
+        sizes = [1000, 5000, 10000, 50000]
+    graph_types = ['LFR']
+
+    # Discover available binaries for every mode
+    mode_exes = {}
+    for mode_name, variant_dict, mapping in ABLATION_MODES:
+        avail = {n: e for n, e in variant_dict.items() if os.path.exists(e)}
+        mode_exes[mode_name] = (avail, mapping)
+
+    # Check at least baseline is available
+    if not mode_exes['baseline'][0]:
+        print("  No baseline BGL binaries found, skipping.")
+        return None
+
+    results = []
+
+    for graph_type in graph_types:
+        print(f"\n{graph_type}:")
+        for n in sizes:
+            print(f"  n={n:,}...", flush=True)
+
+            try:
+                G = nx.generators.community.LFR_benchmark_graph(
+                    n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
+                    max_degree=min(50, n // 10),
+                    min_community=max(10, n // 100),
+                    max_community=min(n // 10, n // 2), seed=42)
+            except Exception:
+                G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
+
+            m = G.number_of_edges()
+
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
+                                             delete=False) as f:
+                write_edgelist(G, f.name)
+                temp_file = f.name
+
+            for mode_name, variant_dict, mapping in ABLATION_MODES:
+                avail, _ = mode_exes[mode_name]
+                for bgl_label, exe in avail.items():
+                    # Resolve the canonical variant name
+                    variant = mapping[bgl_label] if mapping else bgl_label
+
+                    if 'adj_matrix' in bgl_label and n > MATRIX_MAX_NODES:
+                        results.append({
+                            'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                            'Variant': variant, 'Mode': mode_name,
+                            'Time': float('nan'), 'Time_Std': float('nan'),
+                            'Modularity': float('nan'), 'Modularity_Std': float('nan'),
+                            'Communities': float('nan'), 'Communities_Std': float('nan'),
+                        })
+                        continue
+
+                    times, mods, comms = [], [], []
+                    for _ in range(n_trials):
+                        t, Q, partition = run_bgl_exe(exe, temp_file, timeout=900)
+                        if t is not None:
+                            times.append(t)
+                        if Q is not None:
+                            mods.append(Q)
+                        if partition is not None:
+                            comms.append(len(set(partition)))
+
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Variant': variant, 'Mode': mode_name,
+                        'Time': np.mean(times) if times else float('nan'),
+                        'Time_Std': np.std(times) if times else float('nan'),
+                        'Modularity': np.mean(mods) if mods else float('nan'),
+                        'Modularity_Std': np.std(mods) if mods else float('nan'),
+                        'Communities': np.mean(comms) if comms else float('nan'),
+                        'Communities_Std': np.std(comms) if comms else float('nan'),
+                    })
+                    if times:
+                        print(f"    {variant:30s} {mode_name:12s} "
+                              f"{np.mean(times):.6f}s  Q={np.mean(mods):.4f}")
+                    else:
+                        print(f"    {variant:30s} {mode_name:12s} FAIL")
+
+            os.unlink(temp_file)
+
+    df = pd.DataFrame(results)
+    df.to_csv('results/ablation.csv', index=False)
+    print(f"\nSaved to results/ablation.csv")
+    return df
+
+
 # ── main ─────────────────────────────────────────────────────────────────
 
-BENCHMARKS = ['correctness', 'runtime', 'incremental', 'epsilon', 'trust_q']
+BENCHMARKS = ['correctness', 'runtime', 'incremental', 'epsilon', 'trust_q',
+              'ablation']
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Louvain benchmark suite')
@@ -989,6 +1135,10 @@ if __name__ == '__main__':
                 sizes=sizes_override or ([1000, 5000, 10000] if q else None))
         elif name == 'trust_q':
             run_benchmark_trust_q(
+                n_trials=3 if q else 10,
+                sizes=sizes_override or ([1000, 5000, 10000] if q else None))
+        elif name == 'ablation':
+            run_benchmark_ablation(
                 n_trials=3 if q else 10,
                 sizes=sizes_override or ([1000, 5000, 10000] if q else None))
 
