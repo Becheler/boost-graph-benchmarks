@@ -36,6 +36,22 @@ set(BGL_VARIANTS_NOINC
     bgl_louvain_matrix_noinc
 )
 
+# "Trust aggregated Q" variants — compile the same source files but with
+# BOOST_GRAPH_LOUVAIN_TRUST_AGGREGATED_Q=1.  This skips the per-level
+# recomputation of Q on the original graph and the best-partition tracking.
+set(BGL_TRUST_TARGETS
+    bgl_louvain_vecS_vecS_trust
+    bgl_louvain_listS_vecS_trust
+    bgl_louvain_setS_vecS_trust
+    bgl_louvain_matrix_trust
+)
+set(BGL_TRUST_SOURCES
+    bgl_louvain_vecS_vecS.cpp
+    bgl_louvain_listS_vecS.cpp
+    bgl_louvain_setS_vecS.cpp
+    bgl_louvain_matrix.cpp
+)
+
 # NOTE: listS-as-VertexList variants (vecS_listS, listS_listS) are not
 # included here because they are uncommon in practice. The refactored
 # louvain_clustering.hpp now uses vertex_index maps internally and
@@ -51,6 +67,17 @@ foreach(variant ${BGL_VARIANTS_NOINC})
     add_executable(${variant} ${variant}.cpp)
     target_link_libraries(${variant} ${Boost_LIBRARIES})
     target_compile_options(${variant} PRIVATE -O3)
+endforeach()
+
+list(LENGTH BGL_TRUST_TARGETS _trust_count)
+math(EXPR _trust_last "${_trust_count} - 1")
+foreach(i RANGE 0 ${_trust_last})
+    list(GET BGL_TRUST_TARGETS ${i} target_name)
+    list(GET BGL_TRUST_SOURCES ${i} source_file)
+    add_executable(${target_name} ${source_file})
+    target_link_libraries(${target_name} ${Boost_LIBRARIES})
+    target_compile_options(${target_name} PRIVATE -O3)
+    target_compile_definitions(${target_name} PRIVATE BOOST_GRAPH_LOUVAIN_TRUST_AGGREGATED_Q=1)
 endforeach()
 
 # ---------------------------------------------------------------------------

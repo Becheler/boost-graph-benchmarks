@@ -68,3 +68,16 @@ Speedup over igraph for BGL with both thresholds vs genlouvain, showing whether 
 
 Absolute runtime comparison across graph sizes, showing the wall-clock effect of the threshold change.
 ![Epsilon runtime](results/epsilon_runtime.png)
+
+### Trust Aggregated Q vs Safe Q
+
+BGL defaults to recomputing modularity on the original graph after each aggregation level and tracking the best partition seen (safe mode, `BOOST_GRAPH_LOUVAIN_TRUST_AGGREGATED_Q=0`). The trust mode (`=1`) skips that recheck and accepts the aggregated Q directly. These plots measure whether trusting the coarsened-graph Q is faster and whether it hurts partition quality.
+
+Absolute runtime comparison between safe and trust-Q modes for each BGL graph-type variant across graph sizes.
+![Trust-Q runtime](results/trust_q_runtime.png)
+
+Modularity achieved by both modes, verifying whether skipping the per-level recheck degrades partition quality.
+![Trust-Q correctness](results/trust_q_correctness.png)
+
+Speedup of trust-Q over safe mode per variant, showing the cost of the per-level Q recomputation.
+![Trust-Q speedup](results/trust_q_speedup.png)

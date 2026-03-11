@@ -50,6 +50,24 @@ NOINC_TO_INC = {
     'BGL adj_matrix (non-inc)': 'BGL adj_matrix',
 }
 
+# "Trust aggregated Q" variants — compiled with
+# BOOST_GRAPH_LOUVAIN_TRUST_AGGREGATED_Q=1.  These skip the per-level
+# recomputation of Q on the original graph and the best-partition tracking.
+ALL_BGL_VARIANTS_TRUST = {
+    'BGL vecS/vecS (trust-Q)':  './build/bgl_louvain_vecS_vecS_trust',
+    'BGL listS/vecS (trust-Q)': './build/bgl_louvain_listS_vecS_trust',
+    'BGL setS/vecS (trust-Q)':  './build/bgl_louvain_setS_vecS_trust',
+    'BGL adj_matrix (trust-Q)': './build/bgl_louvain_matrix_trust',
+}
+
+# Mapping from trust label to its default (safe) counterpart
+TRUST_TO_DEFAULT = {
+    'BGL vecS/vecS (trust-Q)':  'BGL vecS/vecS',
+    'BGL listS/vecS (trust-Q)': 'BGL listS/vecS',
+    'BGL setS/vecS (trust-Q)':  'BGL setS/vecS',
+    'BGL adj_matrix (trust-Q)': 'BGL adj_matrix',
+}
+
 
 def write_edgelist(G, filename):
     """Write graph to edge list format."""
@@ -789,9 +807,156 @@ def run_benchmark_epsilon(n_trials=10, sizes=None):
     return df
 
 
+# ── trust-Q vs safe-Q (best-partition tracking) ─────────────────────────
+
+def run_benchmark_trust_q(n_trials=10, sizes=None):
+    """Compare trust-aggregated-Q vs safe (recompute-Q) variants.
+
+    The "safe" path (default, TRUST_AGGREGATED_Q=0) recomputes modularity
+    on the original graph after each level and keeps the best partition.
+    The "trust" path (TRUST_AGGREGATED_Q=1) accepts the aggregated Q
+    directly, skipping the per-level recheck.
+
+    Measures both runtime and correctness (modularity, #communities)
+    on synthetic LFR and ScaleFree graphs.
+
+    Output: results/trust_q.csv
+        Columns: GraphType, Nodes, Edges, Variant, Mode,
+                 Time, Time_Std, Modularity, Modularity_Std,
+                 Communities, Communities_Std
+    """
+    print("\nTrust-Q vs Safe-Q Benchmark")
+    print("=" * 60)
+
+    if sizes is None:
+        sizes = [1000, 5000, 10000, 50000]
+    graph_types = ['LFR', 'ScaleFree']
+
+    available_default = {n: e for n, e in ALL_BGL_VARIANTS.items()
+                         if os.path.exists(e)}
+    available_trust = {n: e for n, e in ALL_BGL_VARIANTS_TRUST.items()
+                       if os.path.exists(e)}
+
+    if not available_default:
+        print("  No default BGL binaries found, skipping.")
+        return None
+    if not available_trust:
+        print("  No trust-Q BGL binaries found, skipping.")
+        return None
+
+    results = []
+
+    for graph_type in graph_types:
+        print(f"\n{graph_type}:")
+        for n in sizes:
+            print(f"  n={n:,}...", flush=True)
+
+            if graph_type == 'LFR':
+                try:
+                    G = nx.generators.community.LFR_benchmark_graph(
+                        n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
+                        max_degree=min(50, n // 10),
+                        min_community=max(10, n // 100),
+                        max_community=min(n // 10, n // 2), seed=42)
+                except Exception:
+                    G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
+            else:
+                G = nx.barabasi_albert_graph(n, 3, seed=42)
+
+            m = G.number_of_edges()
+
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
+                                             delete=False) as f:
+                write_edgelist(G, f.name)
+                temp_file = f.name
+
+            # ── Default (safe) variants ──
+            for bgl_name, exe in available_default.items():
+                variant = bgl_name
+                if 'adj_matrix' in bgl_name and n > MATRIX_MAX_NODES:
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Variant': variant, 'Mode': 'safe',
+                        'Time': float('nan'), 'Time_Std': float('nan'),
+                        'Modularity': float('nan'), 'Modularity_Std': float('nan'),
+                        'Communities': float('nan'), 'Communities_Std': float('nan'),
+                    })
+                    continue
+
+                times, mods, comms = [], [], []
+                for _ in range(n_trials):
+                    t, Q, partition = run_bgl_exe(exe, temp_file, timeout=900)
+                    if t is not None:
+                        times.append(t)
+                    if Q is not None:
+                        mods.append(Q)
+                    if partition is not None:
+                        comms.append(len(set(partition)))
+
+                results.append({
+                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                    'Variant': variant, 'Mode': 'safe',
+                    'Time': np.mean(times) if times else float('nan'),
+                    'Time_Std': np.std(times) if times else float('nan'),
+                    'Modularity': np.mean(mods) if mods else float('nan'),
+                    'Modularity_Std': np.std(mods) if mods else float('nan'),
+                    'Communities': np.mean(comms) if comms else float('nan'),
+                    'Communities_Std': np.std(comms) if comms else float('nan'),
+                })
+                if times:
+                    print(f"    {variant:30s} safe   {np.mean(times):.6f}s  "
+                          f"Q={np.mean(mods):.4f}")
+
+            # ── Trust-Q variants ──
+            for bgl_name_t, exe_t in available_trust.items():
+                variant = TRUST_TO_DEFAULT[bgl_name_t]
+                if 'adj_matrix' in bgl_name_t and n > MATRIX_MAX_NODES:
+                    results.append({
+                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                        'Variant': variant, 'Mode': 'trust-Q',
+                        'Time': float('nan'), 'Time_Std': float('nan'),
+                        'Modularity': float('nan'), 'Modularity_Std': float('nan'),
+                        'Communities': float('nan'), 'Communities_Std': float('nan'),
+                    })
+                    continue
+
+                times, mods, comms = [], [], []
+                for _ in range(n_trials):
+                    t, Q, partition = run_bgl_exe(exe_t, temp_file, timeout=900)
+                    if t is not None:
+                        times.append(t)
+                    if Q is not None:
+                        mods.append(Q)
+                    if partition is not None:
+                        comms.append(len(set(partition)))
+
+                results.append({
+                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+                    'Variant': variant, 'Mode': 'trust-Q',
+                    'Time': np.mean(times) if times else float('nan'),
+                    'Time_Std': np.std(times) if times else float('nan'),
+                    'Modularity': np.mean(mods) if mods else float('nan'),
+                    'Modularity_Std': np.std(mods) if mods else float('nan'),
+                    'Communities': np.mean(comms) if comms else float('nan'),
+                    'Communities_Std': np.std(comms) if comms else float('nan'),
+                })
+                if times:
+                    print(f"    {variant:30s} trust  {np.mean(times):.6f}s  "
+                          f"Q={np.mean(mods):.4f}")
+                else:
+                    print(f"    {variant:30s} trust  FAIL")
+
+            os.unlink(temp_file)
+
+    df = pd.DataFrame(results)
+    df.to_csv('results/trust_q.csv', index=False)
+    print(f"\nSaved to results/trust_q.csv")
+    return df
+
+
 # ── main ─────────────────────────────────────────────────────────────────
 
-BENCHMARKS = ['correctness', 'runtime', 'incremental', 'epsilon']
+BENCHMARKS = ['correctness', 'runtime', 'incremental', 'epsilon', 'trust_q']
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Louvain benchmark suite')
@@ -832,6 +997,10 @@ if __name__ == '__main__':
                 sizes=sizes_override or ([100, 500] if q else None))
         elif name == 'epsilon':
             run_benchmark_epsilon(
+                n_trials=3 if q else 10,
+                sizes=sizes_override or ([1000, 5000, 10000] if q else None))
+        elif name == 'trust_q':
+            run_benchmark_trust_q(
                 n_trials=3 if q else 10,
                 sizes=sizes_override or ([1000, 5000, 10000] if q else None))
 

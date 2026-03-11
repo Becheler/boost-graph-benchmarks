@@ -488,6 +488,172 @@ if os.path.exists('results/incremental.csv'):
 
 # ── epsilon threshold comparison plots ────────────────────────────────────
 
+# ── trust-Q vs safe-Q plots ──────────────────────────────────────────────
+
+TRUST_COLORS = {
+    'safe':     '#2ca02c',
+    'trust-Q':  '#d62728',
+}
+
+
+def _trust_q_runtime(df_trust, filename):
+    """Runtime comparison: safe vs trust-Q per variant and graph size."""
+    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_trust['GraphType'].values]
+    variants = list(df_trust['Variant'].unique())
+
+    fig, axes = plt.subplots(len(graph_types), 1,
+                             figsize=(max(8, len(variants) * 3), 5 * len(graph_types)),
+                             squeeze=False)
+
+    for idx, gt in enumerate(graph_types):
+        ax = axes[idx][0]
+        dt = df_trust[df_trust['GraphType'] == gt]
+        sizes = sorted(dt['Nodes'].unique())
+
+        x_labels = []
+        safe_times, trust_times = [], []
+        safe_errs, trust_errs = [], []
+
+        for n in sizes:
+            for variant in variants:
+                row_safe = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'safe') & (dt['Nodes'] == n)]
+                row_trust = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'trust-Q') & (dt['Nodes'] == n)]
+                t_s = row_safe['Time'].values[0] if len(row_safe) > 0 else float('nan')
+                t_t = row_trust['Time'].values[0] if len(row_trust) > 0 else float('nan')
+                te_s = row_safe['Time_Std'].values[0] if len(row_safe) > 0 else 0
+                te_t = row_trust['Time_Std'].values[0] if len(row_trust) > 0 else 0
+                safe_times.append(t_s)
+                trust_times.append(t_t)
+                safe_errs.append(te_s)
+                trust_errs.append(te_t)
+                short = variant.replace('BGL ', '')
+                x_labels.append(f"{short}\nn={n:,}")
+
+        x = np.arange(len(x_labels))
+        w = 0.35
+        ax.bar(x - w/2, safe_times, w, yerr=safe_errs, label='safe (recompute Q)',
+               color=TRUST_COLORS['safe'], alpha=0.8, capsize=3)
+        ax.bar(x + w/2, trust_times, w, yerr=trust_errs, label='trust aggregated Q',
+               color=TRUST_COLORS['trust-Q'], alpha=0.8, capsize=3)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
+        ax.set_ylabel('Time (seconds)', fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.set_yscale('log')
+        ax.grid(axis='y', alpha=0.3)
+
+    fig.suptitle('Trust-Q vs Safe-Q: Runtime', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    _save(fig, filename)
+
+
+def _trust_q_correctness(df_trust, filename):
+    """Modularity comparison: safe vs trust-Q per variant and graph size."""
+    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_trust['GraphType'].values]
+    variants = list(df_trust['Variant'].unique())
+
+    fig, axes = plt.subplots(len(graph_types), 1,
+                             figsize=(max(8, len(variants) * 3), 5 * len(graph_types)),
+                             squeeze=False)
+
+    for idx, gt in enumerate(graph_types):
+        ax = axes[idx][0]
+        dt = df_trust[df_trust['GraphType'] == gt]
+        sizes = sorted(dt['Nodes'].unique())
+
+        x_labels = []
+        safe_q, trust_q = [], []
+        safe_qe, trust_qe = [], []
+
+        for n in sizes:
+            for variant in variants:
+                row_safe = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'safe') & (dt['Nodes'] == n)]
+                row_trust = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'trust-Q') & (dt['Nodes'] == n)]
+                q_s = row_safe['Modularity'].values[0] if len(row_safe) > 0 else float('nan')
+                q_t = row_trust['Modularity'].values[0] if len(row_trust) > 0 else float('nan')
+                qe_s = row_safe['Modularity_Std'].values[0] if len(row_safe) > 0 else 0
+                qe_t = row_trust['Modularity_Std'].values[0] if len(row_trust) > 0 else 0
+                safe_q.append(q_s)
+                trust_q.append(q_t)
+                safe_qe.append(qe_s)
+                trust_qe.append(qe_t)
+                short = variant.replace('BGL ', '')
+                x_labels.append(f"{short}\nn={n:,}")
+
+        x = np.arange(len(x_labels))
+        w = 0.35
+        ax.bar(x - w/2, safe_q, w, yerr=safe_qe, label='safe (recompute Q)',
+               color=TRUST_COLORS['safe'], alpha=0.8, capsize=3)
+        ax.bar(x + w/2, trust_q, w, yerr=trust_qe, label='trust aggregated Q',
+               color=TRUST_COLORS['trust-Q'], alpha=0.8, capsize=3)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
+        ax.set_ylabel('Modularity (Q)', fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(axis='y', alpha=0.3)
+
+    fig.suptitle('Trust-Q vs Safe-Q: Modularity', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    _save(fig, filename)
+
+
+def _trust_q_speedup(df_trust, filename):
+    """Speedup of trust-Q over safe per variant, as line plot vs graph size."""
+    variants = df_trust['Variant'].unique()
+    graph_types = [gt for gt in ['LFR', 'ScaleFree'] if gt in df_trust['GraphType'].values]
+
+    fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
+                             sharey=True, squeeze=False)
+    variant_colors = {v: IMPL_COLORS.get(v, f'C{i}') for i, v in enumerate(variants)}
+
+    for idx, gt in enumerate(graph_types):
+        ax = axes[0][idx]
+        dt = df_trust[df_trust['GraphType'] == gt]
+
+        for j, variant in enumerate(variants):
+            dv = dt[dt['Variant'] == variant]
+            safe = dv[dv['Mode'] == 'safe'][['Nodes', 'Time']].rename(columns={'Time': 't_safe'})
+            trust = dv[dv['Mode'] == 'trust-Q'][['Nodes', 'Time']].rename(columns={'Time': 't_trust'})
+            merged = pd.merge(safe, trust, on='Nodes').dropna().sort_values('Nodes')
+            if merged.empty:
+                continue
+            speedup = merged['t_safe'] / merged['t_trust']
+            ax.plot(merged['Nodes'], speedup,
+                    marker='o', markersize=5, linewidth=1.5,
+                    color=variant_colors.get(variant, '#333'), label=variant)
+
+        ax.axhline(y=1.0, color='grey', linestyle='--', linewidth=1, alpha=0.7)
+        ax.set_xlabel('Number of Nodes', fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_xscale('log')
+
+    axes[0][0].set_ylabel('Speedup (safe time / trust-Q time)', fontweight='bold')
+    fig.suptitle('Trust-Q Speedup over Safe-Q', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    _save(fig, filename)
+
+
+# Trust-Q vs Safe-Q
+if os.path.exists('results/trust_q.csv'):
+    df_trust = pd.read_csv('results/trust_q.csv')
+    print(f"Loaded {len(df_trust)} rows from results/trust_q.csv")
+    print(f"Variants: {', '.join(df_trust['Variant'].unique())}")
+    print(f"Modes: {', '.join(df_trust['Mode'].unique())}")
+    print()
+
+    _trust_q_runtime(df_trust, 'results/trust_q_runtime.png')
+    _trust_q_correctness(df_trust, 'results/trust_q_correctness.png')
+    _trust_q_speedup(df_trust, 'results/trust_q_speedup.png')
+
+
+# \u2500\u2500 epsilon threshold comparison plots \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
 EPS_COLORS = {
     'igraph':                     '#ff7f0e',
     'genlouvain':                 '#d62728',
