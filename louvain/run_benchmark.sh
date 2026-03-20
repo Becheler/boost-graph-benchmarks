@@ -36,7 +36,7 @@ bash vendor/gen-louvain/build.sh || \
     echo "  WARNING: gen-louvain source prep failed. Benchmarks will skip gen-louvain."
 
 # --- Build all binaries via CMake (BGL + gen-louvain) ---
-if [ ! -d build ] || [ ! -f build/bgl_louvain_vecS_vecS ] || [ ! -f build/bgl_louvain_vecS_vecS_trust ] || [ ! -f build/bgl_louvain_vecS_vecS_peak ] || [ ! -f build/bgl_louvain_vecS_vecS_trust_peak ]; then
+if [ ! -d build ] || [ ! -f build/bgl_louvain_vecS_vecS ]; then
     echo "Building all binaries with CMake..."
     mkdir -p build
     (cd build && cmake ../src -DCMAKE_BUILD_TYPE=Release -Wno-dev && cmake --build . -j$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)) && \

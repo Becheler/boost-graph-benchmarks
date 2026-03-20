@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 # ─────────────────────────────────────────────────────────────────────────
-# Job graph:   build  ──►  benchmark (×7 matrix)  ──►  visualize
+# Job graph:   build  ──►  benchmark (×5 matrix)  ──►  visualize
 # ─────────────────────────────────────────────────────────────────────────
 
 jobs:
@@ -84,10 +84,6 @@ jobs:
             args: "--only incremental"
           - suite: epsilon
             args: "--only epsilon"
-          - suite: trust_q
-            args: "--only trust_q"
-          - suite: ablation
-            args: "--only ablation"
     steps:
     - uses: actions/checkout@v4
 

@@ -251,6 +251,76 @@ def _communities_detected(df_rt, filename, impls=None):
     _save(fig, filename)
 
 
+def _time_per_edge(df_rt, filename, impls=None):
+    """Log-log time-per-edge vs nodes, showing algorithmic efficiency."""
+    if impls is None:
+        impls = _ordered(ALL_IMPLEMENTATIONS, df_rt['Implementation'])
+    else:
+        impls = _ordered(impls, df_rt['Implementation'])
+
+    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
+    fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
+                             sharey=True, squeeze=False)
+
+    for idx, gt in enumerate(graph_types):
+        ax = axes[0][idx]
+        dt = df_rt[df_rt['GraphType'] == gt]
+        for i, impl in enumerate(impls):
+            di = dt[dt['Implementation'] == impl].dropna(subset=['Time']).sort_values('Nodes')
+            if di.empty:
+                continue
+            tpe = di['Time'] / di['Edges']
+            tpe_std = di['Time_Std'] / di['Edges']
+            ax.errorbar(di['Nodes'], tpe, yerr=tpe_std,
+                        marker='|', markersize=6, label=impl, capsize=3,
+                        linewidth=1, color=IMPL_COLORS.get(impl, '#333'))
+        ax.set_xlabel('Number of Nodes', fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_xscale('log'); ax.set_yscale('log')
+
+    axes[0][0].set_ylabel('Time per Edge (seconds)', fontweight='bold')
+    fig.suptitle('Runtime per Edge', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    _save(fig, filename)
+
+
+def _time_per_node(df_rt, filename, impls=None):
+    """Log-log time-per-node vs nodes, showing per-vertex cost scaling."""
+    if impls is None:
+        impls = _ordered(ALL_IMPLEMENTATIONS, df_rt['Implementation'])
+    else:
+        impls = _ordered(impls, df_rt['Implementation'])
+
+    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
+    fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
+                             sharey=True, squeeze=False)
+
+    for idx, gt in enumerate(graph_types):
+        ax = axes[0][idx]
+        dt = df_rt[df_rt['GraphType'] == gt]
+        for i, impl in enumerate(impls):
+            di = dt[dt['Implementation'] == impl].dropna(subset=['Time']).sort_values('Nodes')
+            if di.empty:
+                continue
+            tpn = di['Time'] / di['Nodes']
+            tpn_std = di['Time_Std'] / di['Nodes']
+            ax.errorbar(di['Nodes'], tpn, yerr=tpn_std,
+                        marker='|', markersize=6, label=impl, capsize=3,
+                        linewidth=1, color=IMPL_COLORS.get(impl, '#333'))
+        ax.set_xlabel('Number of Nodes', fontweight='bold')
+        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_xscale('log'); ax.set_yscale('log')
+
+    axes[0][0].set_ylabel('Time per Node (seconds)', fontweight='bold')
+    fig.suptitle('Runtime per Node', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    _save(fig, filename)
+
+
 def _speedup_over_igraph(df_rt, filename):
     """Speedup of every other implementation relative to igraph."""
     others = [i for i in ALL_IMPLEMENTATIONS if i != 'igraph']
@@ -320,6 +390,8 @@ if os.path.exists('results/runtime.csv'):
     print(f"Implementations: {', '.join(str(i) for i in df_rt['Implementation'].unique())}")
     print()
     _runtime_scalability(df_rt, 'results/runtime.png')
+    _time_per_edge(df_rt, 'results/time_per_edge.png')
+    _time_per_node(df_rt, 'results/time_per_node.png')
     _communities_detected(df_rt, 'results/communities.png')
     _speedup_over_igraph(df_rt, 'results/speedup.png')
   except Exception as e:
@@ -498,449 +570,6 @@ if os.path.exists('results/incremental.csv'):
 
 
 # ── epsilon threshold comparison plots ────────────────────────────────────
-
-# ── trust-Q vs safe-Q plots ──────────────────────────────────────────────
-
-TRUST_COLORS = {
-    'safe':     '#2ca02c',
-    'trust-Q':  '#d62728',
-}
-
-
-def _trust_q_runtime(df_trust, filename):
-    """Runtime comparison: safe vs trust-Q per variant and graph size."""
-    graph_types = [gt for gt in ['LFR'] if gt in df_trust['GraphType'].values]
-    variants = list(df_trust['Variant'].unique())
-
-    fig, axes = plt.subplots(len(graph_types), 1,
-                             figsize=(max(8, len(variants) * 3), 5 * len(graph_types)),
-                             squeeze=False)
-
-    for idx, gt in enumerate(graph_types):
-        ax = axes[idx][0]
-        dt = df_trust[df_trust['GraphType'] == gt]
-        sizes = sorted(dt['Nodes'].unique())
-
-        x_labels = []
-        safe_times, trust_times = [], []
-        safe_errs, trust_errs = [], []
-
-        for n in sizes:
-            for variant in variants:
-                row_safe = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'safe') & (dt['Nodes'] == n)]
-                row_trust = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'trust-Q') & (dt['Nodes'] == n)]
-                t_s = row_safe['Time'].values[0] if len(row_safe) > 0 else float('nan')
-                t_t = row_trust['Time'].values[0] if len(row_trust) > 0 else float('nan')
-                te_s = row_safe['Time_Std'].values[0] if len(row_safe) > 0 else 0
-                te_t = row_trust['Time_Std'].values[0] if len(row_trust) > 0 else 0
-                safe_times.append(t_s)
-                trust_times.append(t_t)
-                safe_errs.append(te_s)
-                trust_errs.append(te_t)
-                short = variant.replace('BGL ', '')
-                x_labels.append(f"{short}\nn={n:,}")
-
-        x = np.arange(len(x_labels))
-        w = 0.35
-        ax.bar(x - w/2, safe_times, w, yerr=safe_errs, label='safe (recompute Q)',
-               color=TRUST_COLORS['safe'], alpha=0.8, capsize=3)
-        ax.bar(x + w/2, trust_times, w, yerr=trust_errs, label='trust aggregated Q',
-               color=TRUST_COLORS['trust-Q'], alpha=0.8, capsize=3)
-
-        ax.set_xticks(x)
-        ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
-        ax.set_ylabel('Time (seconds)', fontweight='bold')
-        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
-        ax.legend(loc='best', fontsize=9)
-        ax.set_yscale('log')
-        ax.grid(axis='y', alpha=0.3)
-
-    fig.suptitle('Trust-Q vs Safe-Q: Runtime', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    _save(fig, filename)
-
-
-def _trust_q_correctness(df_trust, filename):
-    """Modularity comparison: safe vs trust-Q per variant and graph size."""
-    graph_types = [gt for gt in ['LFR'] if gt in df_trust['GraphType'].values]
-    variants = list(df_trust['Variant'].unique())
-
-    fig, axes = plt.subplots(len(graph_types), 1,
-                             figsize=(max(8, len(variants) * 3), 5 * len(graph_types)),
-                             squeeze=False)
-
-    for idx, gt in enumerate(graph_types):
-        ax = axes[idx][0]
-        dt = df_trust[df_trust['GraphType'] == gt]
-        sizes = sorted(dt['Nodes'].unique())
-
-        x_labels = []
-        safe_q, trust_q = [], []
-        safe_qe, trust_qe = [], []
-
-        for n in sizes:
-            for variant in variants:
-                row_safe = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'safe') & (dt['Nodes'] == n)]
-                row_trust = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'trust-Q') & (dt['Nodes'] == n)]
-                q_s = row_safe['Modularity'].values[0] if len(row_safe) > 0 else float('nan')
-                q_t = row_trust['Modularity'].values[0] if len(row_trust) > 0 else float('nan')
-                qe_s = row_safe['Modularity_Std'].values[0] if len(row_safe) > 0 else 0
-                qe_t = row_trust['Modularity_Std'].values[0] if len(row_trust) > 0 else 0
-                safe_q.append(q_s)
-                trust_q.append(q_t)
-                safe_qe.append(qe_s)
-                trust_qe.append(qe_t)
-                short = variant.replace('BGL ', '')
-                x_labels.append(f"{short}\nn={n:,}")
-
-        x = np.arange(len(x_labels))
-        w = 0.35
-        ax.bar(x - w/2, safe_q, w, yerr=safe_qe, label='safe (recompute Q)',
-               color=TRUST_COLORS['safe'], alpha=0.8, capsize=3)
-        ax.bar(x + w/2, trust_q, w, yerr=trust_qe, label='trust aggregated Q',
-               color=TRUST_COLORS['trust-Q'], alpha=0.8, capsize=3)
-
-        ax.set_xticks(x)
-        ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
-        ax.set_ylabel('Modularity (Q)', fontweight='bold')
-        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
-        ax.legend(loc='best', fontsize=9)
-        ax.grid(axis='y', alpha=0.3)
-
-    fig.suptitle('Trust-Q vs Safe-Q: Modularity', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    _save(fig, filename)
-
-
-def _trust_q_speedup(df_trust, filename):
-    """Speedup of trust-Q over safe per variant, as line plot vs graph size."""
-    variants = df_trust['Variant'].unique()
-    graph_types = [gt for gt in ['LFR'] if gt in df_trust['GraphType'].values]
-
-    fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
-                             sharey=True, squeeze=False)
-    variant_colors = {v: IMPL_COLORS.get(v, f'C{i}') for i, v in enumerate(variants)}
-
-    for idx, gt in enumerate(graph_types):
-        ax = axes[0][idx]
-        dt = df_trust[df_trust['GraphType'] == gt]
-
-        for j, variant in enumerate(variants):
-            dv = dt[dt['Variant'] == variant]
-            safe = dv[dv['Mode'] == 'safe'][['Nodes', 'Time']].rename(columns={'Time': 't_safe'})
-            trust = dv[dv['Mode'] == 'trust-Q'][['Nodes', 'Time']].rename(columns={'Time': 't_trust'})
-            merged = pd.merge(safe, trust, on='Nodes').dropna().sort_values('Nodes')
-            if merged.empty:
-                continue
-            speedup = merged['t_safe'] / merged['t_trust']
-            ax.plot(merged['Nodes'], speedup,
-                    marker='o', markersize=5, linewidth=1.5,
-                    color=variant_colors.get(variant, '#333'), label=variant)
-
-        ax.axhline(y=1.0, color='grey', linestyle='--', linewidth=1, alpha=0.7)
-        ax.set_xlabel('Number of Nodes', fontweight='bold')
-        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
-        ax.legend(loc='best', fontsize=9)
-        ax.grid(True, alpha=0.3)
-        ax.set_xscale('log')
-
-    axes[0][0].set_ylabel('Speedup (safe time / trust-Q time)', fontweight='bold')
-    fig.suptitle('Trust-Q Speedup over Safe-Q', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    _save(fig, filename)
-
-
-# Trust-Q vs Safe-Q
-if os.path.exists('results/trust_q.csv'):
-  try:
-    df_trust = pd.read_csv('results/trust_q.csv')
-    print(f"Loaded {len(df_trust)} rows from results/trust_q.csv")
-    print(f"Variants: {', '.join(str(v) for v in df_trust['Variant'].unique())}")
-    print(f"Modes: {', '.join(str(m) for m in df_trust['Mode'].unique())}")
-    print()
-
-    _trust_q_runtime(df_trust, 'results/trust_q_runtime.png')
-    _trust_q_correctness(df_trust, 'results/trust_q_correctness.png')
-    _trust_q_speedup(df_trust, 'results/trust_q_speedup.png')
-  except Exception as e:
-    print(f"WARNING: trust_q plots failed: {e}")
-
-
-# ── ablation: Trust-Q × Track-Peak-Q ─────────────────────────────────────
-
-ABLATION_MODES_ORDER = ['baseline', 'trust-Q', 'peak-Q', 'trust+peak']
-ABLATION_COLORS = {
-    'baseline':    '#2ca02c',
-    'trust-Q':     '#d62728',
-    'peak-Q':      '#1f77b4',
-    'trust+peak':  '#9467bd',
-}
-
-
-def _ablation_runtime_bars(df_abl, filename):
-    """Grouped bar chart: runtime of the 4 ablation modes per variant × size."""
-    graph_types = [gt for gt in ['LFR'] if gt in df_abl['GraphType'].values]
-    variants = list(df_abl['Variant'].unique())
-    modes = [m for m in ABLATION_MODES_ORDER if m in df_abl['Mode'].values]
-
-    fig, axes = plt.subplots(len(graph_types), 1,
-                             figsize=(max(10, len(variants) * 4), 5 * len(graph_types)),
-                             squeeze=False)
-
-    for idx, gt in enumerate(graph_types):
-        ax = axes[idx][0]
-        dt = df_abl[df_abl['GraphType'] == gt]
-        sizes = sorted(dt['Nodes'].unique())
-
-        x_labels = []
-        mode_times = {m: [] for m in modes}
-        mode_errs = {m: [] for m in modes}
-
-        for n in sizes:
-            for variant in variants:
-                short = variant.replace('BGL ', '')
-                x_labels.append(f"{short}\nn={n:,}")
-                for mode in modes:
-                    row = dt[(dt['Variant'] == variant) & (dt['Mode'] == mode) & (dt['Nodes'] == n)]
-                    mode_times[mode].append(row['Time'].values[0] if len(row) > 0 else float('nan'))
-                    mode_errs[mode].append(row['Time_Std'].values[0] if len(row) > 0 else 0)
-
-        x = np.arange(len(x_labels))
-        n_modes = len(modes)
-        w = 0.8 / n_modes
-        for j, mode in enumerate(modes):
-            offset = (j - (n_modes - 1) / 2) * w
-            ax.bar(x + offset, mode_times[mode], w, yerr=mode_errs[mode],
-                   label=mode, color=ABLATION_COLORS.get(mode, f'C{j}'),
-                   alpha=0.85, capsize=2)
-
-        ax.set_xticks(x)
-        ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
-        ax.set_ylabel('Time (seconds)', fontweight='bold')
-        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
-        ax.legend(loc='best', fontsize=9)
-        ax.set_yscale('log')
-        ax.grid(axis='y', alpha=0.3)
-
-    fig.suptitle('Ablation: Trust-Q × Track-Peak-Q — Runtime',
-                 fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    _save(fig, filename)
-
-
-def _ablation_modularity_bars(df_abl, filename):
-    """Grouped bar chart: modularity for the 4 ablation modes."""
-    graph_types = [gt for gt in ['LFR'] if gt in df_abl['GraphType'].values]
-    variants = list(df_abl['Variant'].unique())
-    modes = [m for m in ABLATION_MODES_ORDER if m in df_abl['Mode'].values]
-
-    fig, axes = plt.subplots(len(graph_types), 1,
-                             figsize=(max(10, len(variants) * 4), 5 * len(graph_types)),
-                             squeeze=False)
-
-    for idx, gt in enumerate(graph_types):
-        ax = axes[idx][0]
-        dt = df_abl[df_abl['GraphType'] == gt]
-        sizes = sorted(dt['Nodes'].unique())
-
-        x_labels = []
-        mode_q = {m: [] for m in modes}
-        mode_qe = {m: [] for m in modes}
-
-        for n in sizes:
-            for variant in variants:
-                short = variant.replace('BGL ', '')
-                x_labels.append(f"{short}\nn={n:,}")
-                for mode in modes:
-                    row = dt[(dt['Variant'] == variant) & (dt['Mode'] == mode) & (dt['Nodes'] == n)]
-                    mode_q[mode].append(row['Modularity'].values[0] if len(row) > 0 else float('nan'))
-                    mode_qe[mode].append(row['Modularity_Std'].values[0] if len(row) > 0 else 0)
-
-        x = np.arange(len(x_labels))
-        n_modes = len(modes)
-        w = 0.8 / n_modes
-        for j, mode in enumerate(modes):
-            offset = (j - (n_modes - 1) / 2) * w
-            ax.bar(x + offset, mode_q[mode], w, yerr=mode_qe[mode],
-                   label=mode, color=ABLATION_COLORS.get(mode, f'C{j}'),
-                   alpha=0.85, capsize=2)
-
-        ax.set_xticks(x)
-        ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
-        ax.set_ylabel('Modularity (Q)', fontweight='bold')
-        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
-        ax.legend(loc='best', fontsize=9)
-        ax.grid(axis='y', alpha=0.3)
-
-    fig.suptitle('Ablation: Trust-Q × Track-Peak-Q — Modularity',
-                 fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    _save(fig, filename)
-
-
-def _ablation_speedup_vs_baseline(df_abl, filename):
-    """Line plot: speedup of each mode relative to baseline, per variant × size.
-
-    speedup = baseline_time / mode_time   (>1 means mode is faster)
-    This is the key plot for understanding which toggle helps at which scale.
-    """
-    variants = df_abl['Variant'].unique()
-    graph_types = [gt for gt in ['LFR'] if gt in df_abl['GraphType'].values]
-    modes = [m for m in ABLATION_MODES_ORDER if m != 'baseline' and m in df_abl['Mode'].values]
-
-    fig, axes = plt.subplots(1, max(len(variants), 1),
-                             figsize=(6 * max(len(variants), 1), 5),
-                             sharey=True, squeeze=False)
-
-    for v_idx, variant in enumerate(variants):
-        ax = axes[0][v_idx]
-        for gt in graph_types:
-            dt = df_abl[(df_abl['GraphType'] == gt) & (df_abl['Variant'] == variant)]
-            base = dt[dt['Mode'] == 'baseline'][['Nodes', 'Time']].rename(
-                columns={'Time': 't_base'})
-
-            for mode in modes:
-                other = dt[dt['Mode'] == mode][['Nodes', 'Time']].rename(
-                    columns={'Time': 't_other'})
-                merged = pd.merge(base, other, on='Nodes').dropna().sort_values('Nodes')
-                if merged.empty:
-                    continue
-                speedup = merged['t_base'] / merged['t_other']
-                ax.plot(merged['Nodes'], speedup,
-                        marker='o', markersize=5, linewidth=1.5,
-                        color=ABLATION_COLORS.get(mode, '#333'),
-                        label=f'{mode}')
-
-        ax.axhline(y=1.0, color='grey', linestyle='--', linewidth=1, alpha=0.7)
-        ax.set_xlabel('Number of Nodes', fontweight='bold')
-        short = variant.replace('BGL ', '')
-        ax.set_title(short, fontsize=11, fontweight='bold')
-        ax.legend(loc='best', fontsize=8)
-        ax.grid(True, alpha=0.3)
-        ax.set_xscale('log')
-
-    axes[0][0].set_ylabel('Speedup vs baseline (>1 = faster)', fontweight='bold')
-    fig.suptitle('Ablation: Speedup over Baseline per Toggle',
-                 fontsize=13, fontweight='bold')
-    plt.tight_layout()
-    _save(fig, filename)
-
-
-def _ablation_q_delta_vs_baseline(df_abl, filename):
-    """Line plot: modularity delta of each mode vs baseline.
-
-    delta = mode_Q - baseline_Q   (positive = better modularity)
-    """
-    variants = df_abl['Variant'].unique()
-    graph_types = [gt for gt in ['LFR'] if gt in df_abl['GraphType'].values]
-    modes = [m for m in ABLATION_MODES_ORDER if m != 'baseline' and m in df_abl['Mode'].values]
-
-    fig, axes = plt.subplots(1, max(len(variants), 1),
-                             figsize=(6 * max(len(variants), 1), 5),
-                             sharey=True, squeeze=False)
-
-    for v_idx, variant in enumerate(variants):
-        ax = axes[0][v_idx]
-        for gt in graph_types:
-            dt = df_abl[(df_abl['GraphType'] == gt) & (df_abl['Variant'] == variant)]
-            base = dt[dt['Mode'] == 'baseline'][['Nodes', 'Modularity']].rename(
-                columns={'Modularity': 'q_base'})
-
-            for mode in modes:
-                other = dt[dt['Mode'] == mode][['Nodes', 'Modularity']].rename(
-                    columns={'Modularity': 'q_other'})
-                merged = pd.merge(base, other, on='Nodes').dropna().sort_values('Nodes')
-                if merged.empty:
-                    continue
-                delta = merged['q_other'] - merged['q_base']
-                ax.plot(merged['Nodes'], delta,
-                        marker='o', markersize=5, linewidth=1.5,
-                        color=ABLATION_COLORS.get(mode, '#333'),
-                        label=f'{mode}')
-
-        ax.axhline(y=0.0, color='grey', linestyle='--', linewidth=1, alpha=0.7)
-        ax.set_xlabel('Number of Nodes', fontweight='bold')
-        short = variant.replace('BGL ', '')
-        ax.set_title(short, fontsize=11, fontweight='bold')
-        ax.legend(loc='best', fontsize=8)
-        ax.grid(True, alpha=0.3)
-        ax.set_xscale('log')
-
-    axes[0][0].set_ylabel('ΔQ vs baseline (positive = better)', fontweight='bold')
-    fig.suptitle('Ablation: Modularity Delta vs Baseline',
-                 fontsize=13, fontweight='bold')
-    plt.tight_layout()
-    _save(fig, filename)
-
-
-def _ablation_heatmap(df_abl, filename):
-    """Heatmap: speedup vs baseline for every (variant, size, mode) cell.
-
-    Useful as a summary table when there are many combinations.
-    """
-    graph_types = [gt for gt in ['LFR'] if gt in df_abl['GraphType'].values]
-    modes = [m for m in ABLATION_MODES_ORDER if m != 'baseline' and m in df_abl['Mode'].values]
-
-    for gt in graph_types:
-        dt = df_abl[df_abl['GraphType'] == gt]
-        base = dt[dt['Mode'] == 'baseline']
-
-        rows = []
-        for _, r_base in base.iterrows():
-            for mode in modes:
-                r_mode = dt[(dt['Variant'] == r_base['Variant']) &
-                            (dt['Nodes'] == r_base['Nodes']) &
-                            (dt['Mode'] == mode)]
-                if r_mode.empty or np.isnan(r_base['Time']):
-                    continue
-                t_mode = r_mode['Time'].values[0]
-                if np.isnan(t_mode) or t_mode == 0:
-                    continue
-                speedup = r_base['Time'] / t_mode
-                short = r_base['Variant'].replace('BGL ', '')
-                rows.append({
-                    'Variant × Size': f"{short} n={int(r_base['Nodes']):,}",
-                    'Mode': mode,
-                    'Speedup': speedup,
-                })
-
-        if not rows:
-            continue
-        df_heat = pd.DataFrame(rows)
-        pivot = df_heat.pivot(index='Variant × Size', columns='Mode', values='Speedup')
-        pivot = pivot[[m for m in modes if m in pivot.columns]]
-
-        fig, ax = plt.subplots(figsize=(max(6, len(modes) * 2), max(4, len(pivot) * 0.5)))
-        cmap = sns.diverging_palette(10, 130, as_cmap=True)
-        sns.heatmap(pivot, annot=True, fmt='.2f', cmap=cmap, center=1.0,
-                    linewidths=0.5, ax=ax,
-                    cbar_kws={'label': 'Speedup (>1 = faster than baseline)'})
-        ax.set_title(f'Ablation Speedup Heatmap — {gt} Graphs',
-                     fontsize=12, fontweight='bold')
-        ax.set_ylabel('')
-        plt.tight_layout()
-        _save(fig, filename)
-
-
-# Ablation
-if os.path.exists('results/ablation.csv'):
-  try:
-    df_abl = pd.read_csv('results/ablation.csv')
-    print(f"Loaded {len(df_abl)} rows from results/ablation.csv")
-    print(f"Variants: {', '.join(str(v) for v in df_abl['Variant'].unique())}")
-    print(f"Modes: {', '.join(str(m) for m in df_abl['Mode'].unique())}")
-    print()
-
-    _ablation_runtime_bars(df_abl, 'results/ablation_runtime.png')
-    _ablation_modularity_bars(df_abl, 'results/ablation_modularity.png')
-    _ablation_speedup_vs_baseline(df_abl, 'results/ablation_speedup.png')
-    _ablation_q_delta_vs_baseline(df_abl, 'results/ablation_q_delta.png')
-    _ablation_heatmap(df_abl, 'results/ablation_heatmap.png')
-  except Exception as e:
-    print(f"WARNING: ablation plots failed: {e}")
-
-
-# \u2500\u2500 epsilon threshold comparison plots \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 EPS_COLORS = {
     'igraph':                     '#ff7f0e',
