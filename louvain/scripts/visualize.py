@@ -53,6 +53,14 @@ def _save(fig, filename):
     plt.close(fig)
 
 
+KNOWN_GRAPH_TYPES = ['LFR']
+
+
+def _present_graph_types(df):
+    """Return the subset of known graph types present in the dataframe."""
+    return [gt for gt in KNOWN_GRAPH_TYPES if gt in df['GraphType'].values]
+
+
 # ── correctness plots ────────────────────────────────────────────────────
 
 
@@ -190,7 +198,7 @@ def _runtime_scalability(df_rt, filename, impls=None):
     else:
         impls = _ordered(impls, df_rt['Implementation'])
 
-    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
+    graph_types = _present_graph_types(df_rt)
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
 
@@ -225,7 +233,7 @@ def _communities_detected(df_rt, filename, impls=None):
     if 'Communities' not in df_rt.columns:
         return
 
-    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
+    graph_types = _present_graph_types(df_rt)
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
 
@@ -251,27 +259,27 @@ def _communities_detected(df_rt, filename, impls=None):
     _save(fig, filename)
 
 
-def _time_per_edge(df_rt, filename, impls=None):
-    """Log-log time-per-edge vs nodes, showing algorithmic efficiency."""
+def _time_per_unit(df_rt, filename, divisor_col, ylabel, suptitle, impls=None):
+    """Log-log time-per-unit vs nodes, normalizing runtime by divisor_col."""
     if impls is None:
         impls = _ordered(ALL_IMPLEMENTATIONS, df_rt['Implementation'])
     else:
         impls = _ordered(impls, df_rt['Implementation'])
 
-    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
+    graph_types = _present_graph_types(df_rt)
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
 
     for idx, gt in enumerate(graph_types):
         ax = axes[0][idx]
         dt = df_rt[df_rt['GraphType'] == gt]
-        for i, impl in enumerate(impls):
+        for impl in impls:
             di = dt[dt['Implementation'] == impl].dropna(subset=['Time']).sort_values('Nodes')
             if di.empty:
                 continue
-            tpe = di['Time'] / di['Edges']
-            tpe_std = di['Time_Std'] / di['Edges']
-            ax.errorbar(di['Nodes'], tpe, yerr=tpe_std,
+            tpu = di['Time'] / di[divisor_col]
+            tpu_std = di['Time_Std'] / di[divisor_col]
+            ax.errorbar(di['Nodes'], tpu, yerr=tpu_std,
                         marker='|', markersize=6, label=impl, capsize=3,
                         linewidth=1, color=IMPL_COLORS.get(impl, '#333'))
         ax.set_xlabel('Number of Nodes', fontweight='bold')
@@ -280,43 +288,8 @@ def _time_per_edge(df_rt, filename, impls=None):
         ax.grid(True, alpha=0.3)
         ax.set_xscale('log'); ax.set_yscale('log')
 
-    axes[0][0].set_ylabel('Time per Edge (seconds)', fontweight='bold')
-    fig.suptitle('Runtime per Edge', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    _save(fig, filename)
-
-
-def _time_per_node(df_rt, filename, impls=None):
-    """Log-log time-per-node vs nodes, showing per-vertex cost scaling."""
-    if impls is None:
-        impls = _ordered(ALL_IMPLEMENTATIONS, df_rt['Implementation'])
-    else:
-        impls = _ordered(impls, df_rt['Implementation'])
-
-    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
-    fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
-                             sharey=True, squeeze=False)
-
-    for idx, gt in enumerate(graph_types):
-        ax = axes[0][idx]
-        dt = df_rt[df_rt['GraphType'] == gt]
-        for i, impl in enumerate(impls):
-            di = dt[dt['Implementation'] == impl].dropna(subset=['Time']).sort_values('Nodes')
-            if di.empty:
-                continue
-            tpn = di['Time'] / di['Nodes']
-            tpn_std = di['Time_Std'] / di['Nodes']
-            ax.errorbar(di['Nodes'], tpn, yerr=tpn_std,
-                        marker='|', markersize=6, label=impl, capsize=3,
-                        linewidth=1, color=IMPL_COLORS.get(impl, '#333'))
-        ax.set_xlabel('Number of Nodes', fontweight='bold')
-        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
-        ax.legend(loc='best', fontsize=9)
-        ax.grid(True, alpha=0.3)
-        ax.set_xscale('log'); ax.set_yscale('log')
-
-    axes[0][0].set_ylabel('Time per Node (seconds)', fontweight='bold')
-    fig.suptitle('Runtime per Node', fontsize=14, fontweight='bold')
+    axes[0][0].set_ylabel(ylabel, fontweight='bold')
+    fig.suptitle(suptitle, fontsize=14, fontweight='bold')
     plt.tight_layout()
     _save(fig, filename)
 
@@ -328,7 +301,7 @@ def _speedup_over_igraph(df_rt, filename):
     if not others:
         return
 
-    graph_types = [gt for gt in ['LFR'] if gt in df_rt['GraphType'].values]
+    graph_types = _present_graph_types(df_rt)
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5), sharey=True, squeeze=False)
 
     for idx, gt in enumerate(graph_types):
@@ -390,8 +363,10 @@ if os.path.exists('results/runtime.csv'):
     print(f"Implementations: {', '.join(str(i) for i in df_rt['Implementation'].unique())}")
     print()
     _runtime_scalability(df_rt, 'results/runtime.png')
-    _time_per_edge(df_rt, 'results/time_per_edge.png')
-    _time_per_node(df_rt, 'results/time_per_node.png')
+    _time_per_unit(df_rt, 'results/time_per_edge.png', 'Edges',
+                   'Time per Edge (seconds)', 'Runtime per Edge')
+    _time_per_unit(df_rt, 'results/time_per_node.png', 'Nodes',
+                   'Time per Node (seconds)', 'Runtime per Node')
     _communities_detected(df_rt, 'results/communities.png')
     _speedup_over_igraph(df_rt, 'results/speedup.png')
   except Exception as e:
@@ -408,7 +383,7 @@ INC_COLORS = {
 def _inc_speedup(df_inc, filename):
     """Bar chart: speedup of incremental over non-incremental per variant/size."""
     variants = df_inc['Variant'].unique()
-    graph_types = [gt for gt in ['LFR'] if gt in df_inc['GraphType'].values]
+    graph_types = _present_graph_types(df_inc)
 
     fig, axes = plt.subplots(1, len(graph_types),
                              figsize=(7 * len(graph_types), 5),
@@ -447,9 +422,10 @@ def _inc_speedup(df_inc, filename):
     _save(fig, filename)
 
 
-def _inc_runtime(df_inc, filename):
-    """Grouped bar chart: runtime of inc vs non-inc per variant and graph size."""
-    graph_types = [gt for gt in ['LFR'] if gt in df_inc['GraphType'].values]
+def _inc_grouped_bars(df_inc, filename, value_col, value_std_col,
+                      ylabel, suptitle, log_y=False):
+    """Grouped bar chart: inc vs non-inc for a given metric per variant × size."""
+    graph_types = _present_graph_types(df_inc)
     variants = list(df_inc['Variant'].unique())
 
     fig, axes = plt.subplots(len(graph_types), 1,
@@ -461,94 +437,38 @@ def _inc_runtime(df_inc, filename):
         dt = df_inc[df_inc['GraphType'] == gt]
         sizes = sorted(dt['Nodes'].unique())
 
-        # Build grouped bars: x = variant×size, grouped by inc/noinc
         x_labels = []
-        inc_times, noinc_times = [], []
+        inc_vals, noinc_vals = [], []
         inc_errs, noinc_errs = [], []
 
         for n in sizes:
             for variant in variants:
                 row_inc = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'incremental') & (dt['Nodes'] == n)]
                 row_noinc = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'non-incremental') & (dt['Nodes'] == n)]
-                t_i = row_inc['Time'].values[0] if len(row_inc) > 0 else float('nan')
-                t_n = row_noinc['Time'].values[0] if len(row_noinc) > 0 else float('nan')
-                te_i = row_inc['Time_Std'].values[0] if len(row_inc) > 0 else 0
-                te_n = row_noinc['Time_Std'].values[0] if len(row_noinc) > 0 else 0
-                inc_times.append(t_i)
-                noinc_times.append(t_n)
-                inc_errs.append(te_i)
-                noinc_errs.append(te_n)
+                inc_vals.append(row_inc[value_col].values[0] if len(row_inc) > 0 else float('nan'))
+                noinc_vals.append(row_noinc[value_col].values[0] if len(row_noinc) > 0 else float('nan'))
+                inc_errs.append(row_inc[value_std_col].values[0] if len(row_inc) > 0 else 0)
+                noinc_errs.append(row_noinc[value_std_col].values[0] if len(row_noinc) > 0 else 0)
                 short = variant.replace('BGL ', '')
                 x_labels.append(f"{short}\nn={n:,}")
 
         x = np.arange(len(x_labels))
         w = 0.35
-        ax.bar(x - w/2, inc_times, w, yerr=inc_errs, label='incremental',
+        ax.bar(x - w/2, inc_vals, w, yerr=inc_errs, label='incremental',
                color=INC_COLORS['incremental'], alpha=0.8, capsize=3)
-        ax.bar(x + w/2, noinc_times, w, yerr=noinc_errs, label='non-incremental',
+        ax.bar(x + w/2, noinc_vals, w, yerr=noinc_errs, label='non-incremental',
                color=INC_COLORS['non-incremental'], alpha=0.8, capsize=3)
 
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
-        ax.set_ylabel('Time (seconds)', fontweight='bold')
+        ax.set_ylabel(ylabel, fontweight='bold')
         ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
         ax.legend(loc='best', fontsize=9)
-        ax.set_yscale('log')
+        if log_y:
+            ax.set_yscale('log')
         ax.grid(axis='y', alpha=0.3)
 
-    fig.suptitle('Incremental vs Non-Incremental Runtime', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    _save(fig, filename)
-
-
-def _inc_correctness(df_inc, filename):
-    """Grouped bar chart: modularity of inc vs non-inc per variant and graph type."""
-    graph_types = [gt for gt in ['LFR'] if gt in df_inc['GraphType'].values]
-    variants = list(df_inc['Variant'].unique())
-
-    fig, axes = plt.subplots(len(graph_types), 1,
-                             figsize=(max(8, len(variants) * 3), 5 * len(graph_types)),
-                             squeeze=False)
-
-    for idx, gt in enumerate(graph_types):
-        ax = axes[idx][0]
-        dt = df_inc[df_inc['GraphType'] == gt]
-        sizes = sorted(dt['Nodes'].unique())
-
-        x_labels = []
-        inc_q, noinc_q = [], []
-        inc_qe, noinc_qe = [], []
-
-        for n in sizes:
-            for variant in variants:
-                row_inc = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'incremental') & (dt['Nodes'] == n)]
-                row_noinc = dt[(dt['Variant'] == variant) & (dt['Mode'] == 'non-incremental') & (dt['Nodes'] == n)]
-                q_i = row_inc['Modularity'].values[0] if len(row_inc) > 0 else float('nan')
-                q_n = row_noinc['Modularity'].values[0] if len(row_noinc) > 0 else float('nan')
-                qe_i = row_inc['Modularity_Std'].values[0] if len(row_inc) > 0 else 0
-                qe_n = row_noinc['Modularity_Std'].values[0] if len(row_noinc) > 0 else 0
-                inc_q.append(q_i)
-                noinc_q.append(q_n)
-                inc_qe.append(qe_i)
-                noinc_qe.append(qe_n)
-                short = variant.replace('BGL ', '')
-                x_labels.append(f"{short}\nn={n:,}")
-
-        x = np.arange(len(x_labels))
-        w = 0.35
-        ax.bar(x - w/2, inc_q, w, yerr=inc_qe, label='incremental',
-               color=INC_COLORS['incremental'], alpha=0.8, capsize=3)
-        ax.bar(x + w/2, noinc_q, w, yerr=noinc_qe, label='non-incremental',
-               color=INC_COLORS['non-incremental'], alpha=0.8, capsize=3)
-
-        ax.set_xticks(x)
-        ax.set_xticklabels(x_labels, fontsize=7, rotation=45, ha='right')
-        ax.set_ylabel('Modularity (Q)', fontweight='bold')
-        ax.set_title(f'{gt} Graphs', fontsize=12, fontweight='bold')
-        ax.legend(loc='best', fontsize=9)
-        ax.grid(axis='y', alpha=0.3)
-
-    fig.suptitle('Incremental vs Non-Incremental Modularity', fontsize=14, fontweight='bold')
+    fig.suptitle(suptitle, fontsize=14, fontweight='bold')
     plt.tight_layout()
     _save(fig, filename)
 
@@ -563,8 +483,12 @@ if os.path.exists('results/incremental.csv'):
     print()
 
     _inc_speedup(df_inc, 'results/inc_speedup.png')
-    _inc_runtime(df_inc, 'results/inc_runtime.png')
-    _inc_correctness(df_inc, 'results/inc_correctness.png')
+    _inc_grouped_bars(df_inc, 'results/inc_runtime.png', 'Time', 'Time_Std',
+                      'Time (seconds)', 'Incremental vs Non-Incremental Runtime',
+                      log_y=True)
+    _inc_grouped_bars(df_inc, 'results/inc_correctness.png',
+                      'Modularity', 'Modularity_Std', 'Modularity (Q)',
+                      'Incremental vs Non-Incremental Modularity')
   except Exception as e:
     print(f"WARNING: incremental plots failed: {e}")
 
@@ -582,7 +506,7 @@ EPS_COLORS = {
 def _epsilon_speedup(df_eps, filename):
     """Speedup over igraph for BGL(eps=0), BGL(eps=1e-6), and genlouvain."""
     others = [i for i in df_eps['Implementation'].unique() if i != 'igraph']
-    graph_types = [gt for gt in ['LFR'] if gt in df_eps['GraphType'].values]
+    graph_types = _present_graph_types(df_eps)
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
 
@@ -618,7 +542,7 @@ def _epsilon_runtime(df_eps, filename):
     impls = [i for i in ['igraph', 'genlouvain',
                           'BGL vecS/vecS (eps=0)', 'BGL vecS/vecS (eps=1e-6)']
              if i in df_eps['Implementation'].values]
-    graph_types = [gt for gt in ['LFR'] if gt in df_eps['GraphType'].values]
+    graph_types = _present_graph_types(df_eps)
     fig, axes = plt.subplots(1, len(graph_types), figsize=(7 * len(graph_types), 5),
                              sharey=True, squeeze=False)
 

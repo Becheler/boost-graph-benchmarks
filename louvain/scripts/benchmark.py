@@ -42,13 +42,7 @@ ALL_BGL_VARIANTS_NOINC = {
     'BGL adj_matrix (non-inc)': './build/bgl_louvain_matrix_noinc',
 }
 
-# Mapping from non-inc label to its incremental counterpart
-NOINC_TO_INC = {
-    'BGL vecS/vecS (non-inc)':  'BGL vecS/vecS',
-    'BGL listS/vecS (non-inc)': 'BGL listS/vecS',
-    'BGL setS/vecS (non-inc)':  'BGL setS/vecS',
-    'BGL adj_matrix (non-inc)': 'BGL adj_matrix',
-}
+NOINC_TO_INC = {k: k.replace(' (non-inc)', '') for k in ALL_BGL_VARIANTS_NOINC}
 
 
 def write_edgelist(G, filename):
@@ -189,6 +183,68 @@ def _remap_graph(G):
     return G
 
 
+def _generate_lfr_graph(n, seed=42):
+    """Generate an LFR benchmark graph, falling back to powerlaw_cluster."""
+    try:
+        return nx.generators.community.LFR_benchmark_graph(
+            n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
+            max_degree=min(50, n // 10),
+            min_community=max(10, n // 100),
+            max_community=min(n // 10, n // 2), seed=seed)
+    except Exception:
+        return nx.powerlaw_cluster_graph(n, 2, 0.1, seed=seed)
+
+
+def _write_temp_edgelist(G):
+    """Write G to a temp edge-list file and return its path."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
+                                     delete=False) as f:
+        write_edgelist(G, f.name)
+        return f.name
+
+
+def _run_bgl_trials(exe, temp_file, n_trials, timeout=900, extra_args=None):
+    """Run a BGL executable n_trials times, return (times, mods, comms)."""
+    times, mods, comms = [], [], []
+    for _ in range(n_trials):
+        t, Q, partition = run_bgl_exe(exe, temp_file, timeout=timeout,
+                                      extra_args=extra_args)
+        if t is not None:
+            times.append(t)
+        if Q is not None:
+            mods.append(Q)
+        if partition is not None:
+            comms.append(len(set(partition)))
+    return times, mods, comms
+
+
+def _make_runtime_result(graph_type, n, m, impl, times, comms=None):
+    """Build a runtime-benchmark result dict with nan fallbacks."""
+    return {
+        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+        'Implementation': impl,
+        'Time': np.mean(times) if times else float('nan'),
+        'Time_Std': np.std(times) if times else float('nan'),
+        'Communities': np.mean(comms) if comms else float('nan'),
+        'Communities_Std': np.std(comms) if comms else float('nan'),
+    }
+
+
+def _make_incremental_result(graph_type, n, m, variant, mode,
+                             times, mods=None, comms=None):
+    """Build an incremental-benchmark result dict with nan fallbacks."""
+    return {
+        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
+        'Variant': variant, 'Mode': mode,
+        'Time': np.mean(times) if times else float('nan'),
+        'Time_Std': np.std(times) if times else float('nan'),
+        'Modularity': np.mean(mods) if mods else float('nan'),
+        'Modularity_Std': np.std(mods) if mods else float('nan'),
+        'Communities': np.mean(comms) if comms else float('nan'),
+        'Communities_Std': np.std(comms) if comms else float('nan'),
+    }
+
+
 # ── correctness ─────────────────────────────────────────────────────────
 
 def run_benchmark_correctness(n_trials=100):
@@ -317,7 +373,7 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
     print("=" * 60)
 
     if sizes is None:
-        sizes = [1000, 5000, 10000, 50000, 100000]
+        sizes = [1000, 5000, 10000, 50000, 100000, 1000000]
     if graph_types is None:
         graph_types = ['LFR']
 
@@ -332,21 +388,9 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
         for n in sizes:
             print(f"  n={n:,}...", end=' ', flush=True)
 
-            try:
-                G = nx.generators.community.LFR_benchmark_graph(
-                    n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
-                    max_degree=min(50, n // 10),
-                    min_community=max(10, n // 100),
-                    max_community=min(n // 10, n // 2), seed=42)
-            except Exception:
-                G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
-
+            G = _generate_lfr_graph(n)
             m = G.number_of_edges()
-
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
-                                             delete=False) as f:
-                write_edgelist(G, f.name)
-                temp_file = f.name
+            temp_file = _write_temp_edgelist(G)
 
             # Build igraph graph once
             edges = list(G.edges())
@@ -373,13 +417,8 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
                     G, seed=42)
                 times.append(time.time() - start)
                 comms.append(len(communities))
-            results.append({
-                'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                'Implementation': 'NetworkX',
-                'Time': np.mean(times), 'Time_Std': np.std(times),
-                'Communities': np.mean(comms),
-                'Communities_Std': np.std(comms),
-            })
+            results.append(_make_runtime_result(
+                graph_type, n, m, 'NetworkX', times, comms))
             summary_parts.append(f"NX {np.mean(times):.3f}s")
 
             # ── igraph ──
@@ -389,13 +428,8 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
                 part = g_ig.community_multilevel()
                 times.append(time.time() - start)
                 comms.append(len(part))
-            results.append({
-                'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                'Implementation': 'igraph',
-                'Time': np.mean(times), 'Time_Std': np.std(times),
-                'Communities': np.mean(comms),
-                'Communities_Std': np.std(comms),
-            })
+            results.append(_make_runtime_result(
+                graph_type, n, m, 'igraph', times, comms))
             summary_parts.append(f"ig {np.mean(times):.3f}s")
 
             # ── genlouvain ──
@@ -406,88 +440,36 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
                     if t_gen is not None:
                         times.append(t_gen)
                 if times:
-                    results.append({
-                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                        'Implementation': 'genlouvain',
-                        'Time': np.mean(times), 'Time_Std': np.std(times),
-                        'Communities': float('nan'),
-                        'Communities_Std': float('nan'),
-                    })
+                    results.append(_make_runtime_result(
+                        graph_type, n, m, 'genlouvain', times))
                     summary_parts.append(f"gen {np.mean(times):.3f}s")
 
             # ── BGL variants ──
             for bgl_name, exe in available_bgl.items():
                 if bgl_name == 'BGL adj_matrix' and n > MATRIX_MAX_NODES:
-                    results.append({
-                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                        'Implementation': bgl_name,
-                        'Time': float('nan'), 'Time_Std': float('nan'),
-                        'Communities': float('nan'),
-                        'Communities_Std': float('nan'),
-                    })
-                    short = bgl_name.split()[-1]
-                    summary_parts.append(f"{short} SKIP")
+                    results.append(_make_runtime_result(
+                        graph_type, n, m, bgl_name, [], []))
+                    summary_parts.append(f"{bgl_name.split()[-1]} SKIP")
                     continue
 
-                times, comms = [], []
-                for _ in range(n_trials):
-                    t, _, partition = run_bgl_exe(exe, temp_file)
-                    if t is not None:
-                        times.append(t)
-                    if partition is not None:
-                        comms.append(len(set(partition)))
-
-                if times:
-                    results.append({
-                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                        'Implementation': bgl_name,
-                        'Time': np.mean(times), 'Time_Std': np.std(times),
-                        'Communities': np.mean(comms) if comms else float('nan'),
-                        'Communities_Std': np.std(comms) if comms else float('nan'),
-                    })
-                    short = bgl_name.split()[-1]
-                    summary_parts.append(f"{short} {np.mean(times):.4f}s")
-                else:
-                    results.append({
-                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                        'Implementation': bgl_name,
-                        'Time': float('nan'), 'Time_Std': float('nan'),
-                        'Communities': float('nan'),
-                        'Communities_Std': float('nan'),
-                    })
-                    short = bgl_name.split()[-1]
-                    summary_parts.append(f"{short} FAIL")
+                times, _, comms = _run_bgl_trials(exe, temp_file, n_trials)
+                results.append(_make_runtime_result(
+                    graph_type, n, m, bgl_name, times, comms))
+                short = bgl_name.split()[-1]
+                summary_parts.append(
+                    f"{short} {np.mean(times):.4f}s" if times
+                    else f"{short} FAIL")
 
             # ── BGL vecS/vecS with eps=1e-6 (mimics gen-louvain threshold) ──
             for bgl_name, (exe, extra) in BGL_EPS_VARIANT.items():
                 if os.path.exists(exe):
-                    times, comms = [], []
-                    for _ in range(n_trials):
-                        t, _, partition = run_bgl_exe(exe, temp_file,
-                                                     extra_args=extra)
-                        if t is not None:
-                            times.append(t)
-                        if partition is not None:
-                            comms.append(len(set(partition)))
-
-                    if times:
-                        results.append({
-                            'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                            'Implementation': bgl_name,
-                            'Time': np.mean(times), 'Time_Std': np.std(times),
-                            'Communities': np.mean(comms) if comms else float('nan'),
-                            'Communities_Std': np.std(comms) if comms else float('nan'),
-                        })
-                        summary_parts.append(f"eps1e-6 {np.mean(times):.4f}s")
-                    else:
-                        results.append({
-                            'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                            'Implementation': bgl_name,
-                            'Time': float('nan'), 'Time_Std': float('nan'),
-                            'Communities': float('nan'),
-                            'Communities_Std': float('nan'),
-                        })
-                        summary_parts.append("eps1e-6 FAIL")
+                    times, _, comms = _run_bgl_trials(
+                        exe, temp_file, n_trials, extra_args=extra)
+                    results.append(_make_runtime_result(
+                        graph_type, n, m, bgl_name, times, comms))
+                    summary_parts.append(
+                        f"eps1e-6 {np.mean(times):.4f}s" if times
+                        else "eps1e-6 FAIL")
 
             os.unlink(temp_file)
             print(', '.join(summary_parts))
@@ -536,93 +518,40 @@ def run_benchmark_incremental(n_trials=10, sizes=None):
         for n in sizes:
             print(f"  n={n:,}...", flush=True)
 
-            try:
-                G = nx.generators.community.LFR_benchmark_graph(
-                    n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
-                    max_degree=min(50, n // 10),
-                    min_community=max(10, n // 100),
-                    max_community=min(n // 10, n // 2), seed=42)
-            except Exception:
-                G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
-
+            G = _generate_lfr_graph(n)
             m = G.number_of_edges()
-
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
-                                             delete=False) as f:
-                write_edgelist(G, f.name)
-                temp_file = f.name
+            temp_file = _write_temp_edgelist(G)
 
             # ── Incremental variants ──
             for bgl_name, exe in available_inc.items():
-                variant = bgl_name  # e.g. "BGL vecS/vecS"
+                variant = bgl_name
                 if 'adj_matrix' in bgl_name and n > MATRIX_MAX_NODES:
-                    results.append({
-                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                        'Variant': variant, 'Mode': 'incremental',
-                        'Time': float('nan'), 'Time_Std': float('nan'),
-                        'Modularity': float('nan'), 'Modularity_Std': float('nan'),
-                        'Communities': float('nan'), 'Communities_Std': float('nan'),
-                    })
+                    results.append(_make_incremental_result(
+                        graph_type, n, m, variant, 'incremental', []))
                     continue
 
-                times, mods, comms = [], [], []
-                for _ in range(n_trials):
-                    t, Q, partition = run_bgl_exe(exe, temp_file, timeout=300)
-                    if t is not None:
-                        times.append(t)
-                    if Q is not None:
-                        mods.append(Q)
-                    if partition is not None:
-                        comms.append(len(set(partition)))
-
-                results.append({
-                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                    'Variant': variant, 'Mode': 'incremental',
-                    'Time': np.mean(times) if times else float('nan'),
-                    'Time_Std': np.std(times) if times else float('nan'),
-                    'Modularity': np.mean(mods) if mods else float('nan'),
-                    'Modularity_Std': np.std(mods) if mods else float('nan'),
-                    'Communities': np.mean(comms) if comms else float('nan'),
-                    'Communities_Std': np.std(comms) if comms else float('nan'),
-                })
+                times, mods, comms = _run_bgl_trials(
+                    exe, temp_file, n_trials, timeout=300)
+                results.append(_make_incremental_result(
+                    graph_type, n, m, variant, 'incremental',
+                    times, mods, comms))
                 if times:
                     print(f"    {variant:30s} inc  {np.mean(times):.6f}s  "
                           f"Q={np.mean(mods):.4f}")
 
             # ── Non-incremental variants ──
             for bgl_name_ni, exe_ni in available_noinc.items():
-                variant = NOINC_TO_INC[bgl_name_ni]  # map back to base name
+                variant = NOINC_TO_INC[bgl_name_ni]
                 if 'adj_matrix' in bgl_name_ni and n > MATRIX_MAX_NODES:
-                    results.append({
-                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                        'Variant': variant, 'Mode': 'non-incremental',
-                        'Time': float('nan'), 'Time_Std': float('nan'),
-                        'Modularity': float('nan'), 'Modularity_Std': float('nan'),
-                        'Communities': float('nan'), 'Communities_Std': float('nan'),
-                    })
+                    results.append(_make_incremental_result(
+                        graph_type, n, m, variant, 'non-incremental', []))
                     continue
 
-                # Non-incremental is very slow — use generous timeout
-                times, mods, comms = [], [], []
-                for _ in range(n_trials):
-                    t, Q, partition = run_bgl_exe(exe_ni, temp_file, timeout=600)
-                    if t is not None:
-                        times.append(t)
-                    if Q is not None:
-                        mods.append(Q)
-                    if partition is not None:
-                        comms.append(len(set(partition)))
-
-                results.append({
-                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                    'Variant': variant, 'Mode': 'non-incremental',
-                    'Time': np.mean(times) if times else float('nan'),
-                    'Time_Std': np.std(times) if times else float('nan'),
-                    'Modularity': np.mean(mods) if mods else float('nan'),
-                    'Modularity_Std': np.std(mods) if mods else float('nan'),
-                    'Communities': np.mean(comms) if comms else float('nan'),
-                    'Communities_Std': np.std(comms) if comms else float('nan'),
-                })
+                times, mods, comms = _run_bgl_trials(
+                    exe_ni, temp_file, n_trials, timeout=600)
+                results.append(_make_incremental_result(
+                    graph_type, n, m, variant, 'non-incremental',
+                    times, mods, comms))
                 if times:
                     print(f"    {variant:30s} noinc {np.mean(times):.6f}s  "
                           f"Q={np.mean(mods):.4f}")
@@ -656,7 +585,7 @@ def run_benchmark_epsilon(n_trials=10, sizes=None):
     print("=" * 60)
 
     if sizes is None:
-        sizes = [1000, 5000, 10000, 50000]
+        sizes = [1000, 5000, 10000, 50000, 100000, 1000000]
     graph_types = ['LFR']
 
     bgl_exe = './build/bgl_louvain_vecS_vecS'
@@ -672,21 +601,9 @@ def run_benchmark_epsilon(n_trials=10, sizes=None):
         for n in sizes:
             print(f"  n={n:,}...", end=' ', flush=True)
 
-            try:
-                G = nx.generators.community.LFR_benchmark_graph(
-                    n, tau1=3, tau2=1.5, mu=0.1, average_degree=5,
-                    max_degree=min(50, n // 10),
-                    min_community=max(10, n // 100),
-                    max_community=min(n // 10, n // 2), seed=42)
-            except Exception:
-                G = nx.powerlaw_cluster_graph(n, 2, 0.1, seed=42)
-
+            G = _generate_lfr_graph(n)
             m = G.number_of_edges()
-
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
-                                             delete=False) as f:
-                write_edgelist(G, f.name)
-                temp_file = f.name
+            temp_file = _write_temp_edgelist(G)
 
             # Build igraph graph once
             edges = list(G.edges())
@@ -708,13 +625,8 @@ def run_benchmark_epsilon(n_trials=10, sizes=None):
                 part = g_ig.community_multilevel()
                 times.append(time.time() - start)
                 comms.append(len(part))
-            results.append({
-                'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                'Implementation': 'igraph',
-                'Time': np.mean(times), 'Time_Std': np.std(times),
-                'Communities': np.mean(comms),
-                'Communities_Std': np.std(comms),
-            })
+            results.append(_make_runtime_result(
+                graph_type, n, m, 'igraph', times, comms))
             summary_parts.append(f"ig {np.mean(times):.4f}s")
 
             # ── genlouvain (eps=1e-6 by design) ──
@@ -725,50 +637,24 @@ def run_benchmark_epsilon(n_trials=10, sizes=None):
                     if t_gen is not None:
                         times.append(t_gen)
                 if times:
-                    results.append({
-                        'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                        'Implementation': 'genlouvain',
-                        'Time': np.mean(times), 'Time_Std': np.std(times),
-                        'Communities': float('nan'),
-                        'Communities_Std': float('nan'),
-                    })
+                    results.append(_make_runtime_result(
+                        graph_type, n, m, 'genlouvain', times))
                     summary_parts.append(f"gen {np.mean(times):.4f}s")
 
             # ── BGL eps=0 (default) ──
-            times, comms = [], []
-            for _ in range(n_trials):
-                t, _, partition = run_bgl_exe(bgl_exe, temp_file)
-                if t is not None:
-                    times.append(t)
-                if partition is not None:
-                    comms.append(len(set(partition)))
+            times, _, comms = _run_bgl_trials(bgl_exe, temp_file, n_trials)
             if times:
-                results.append({
-                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                    'Implementation': 'BGL vecS/vecS (eps=0)',
-                    'Time': np.mean(times), 'Time_Std': np.std(times),
-                    'Communities': np.mean(comms) if comms else float('nan'),
-                    'Communities_Std': np.std(comms) if comms else float('nan'),
-                })
+                results.append(_make_runtime_result(
+                    graph_type, n, m, 'BGL vecS/vecS (eps=0)', times, comms))
                 summary_parts.append(f"eps0 {np.mean(times):.4f}s")
 
             # ── BGL eps=1e-6 (matching genlouvain) ──
-            times, comms = [], []
-            for _ in range(n_trials):
-                t, _, partition = run_bgl_exe(bgl_exe, temp_file,
-                                              extra_args=['1e-6'])
-                if t is not None:
-                    times.append(t)
-                if partition is not None:
-                    comms.append(len(set(partition)))
+            times, _, comms = _run_bgl_trials(
+                bgl_exe, temp_file, n_trials, extra_args=['1e-6'])
             if times:
-                results.append({
-                    'GraphType': graph_type, 'Nodes': n, 'Edges': m,
-                    'Implementation': 'BGL vecS/vecS (eps=1e-6)',
-                    'Time': np.mean(times), 'Time_Std': np.std(times),
-                    'Communities': np.mean(comms) if comms else float('nan'),
-                    'Communities_Std': np.std(comms) if comms else float('nan'),
-                })
+                results.append(_make_runtime_result(
+                    graph_type, n, m, 'BGL vecS/vecS (eps=1e-6)',
+                    times, comms))
                 summary_parts.append(f"eps1e-6 {np.mean(times):.4f}s")
 
             os.unlink(temp_file)
