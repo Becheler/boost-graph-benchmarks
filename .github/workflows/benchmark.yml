@@ -80,8 +80,6 @@ jobs:
             args: "--only runtime --sizes 10000,50000 --output-suffix _medium"
           - suite: runtime-100k-lfr
             args: "--only runtime --sizes 100000 --output-suffix _100k-lfr"
-          - suite: runtime-1M-lfr
-            args: "--only runtime --sizes 1000000 --output-suffix _1M-lfr"
           - suite: incremental
             args: "--only incremental"
           - suite: epsilon

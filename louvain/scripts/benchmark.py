@@ -434,14 +434,16 @@ def run_benchmark_runtime(n_trials=10, sizes=None, output_suffix='',
 
             # ── genlouvain ──
             if has_gen:
-                times = []
+                times, comms = [], []
                 for _ in range(n_trials):
-                    t_gen, _, _ = run_genlouvain(temp_file, 42)
+                    t_gen, _, n_comm_gen = run_genlouvain(temp_file, 42)
                     if t_gen is not None:
                         times.append(t_gen)
+                    if n_comm_gen is not None:
+                        comms.append(n_comm_gen)
                 if times:
                     results.append(_make_runtime_result(
-                        graph_type, n, m, 'genlouvain', times))
+                        graph_type, n, m, 'genlouvain', times, comms))
                     summary_parts.append(f"gen {np.mean(times):.3f}s")
 
             # ── BGL variants ──
